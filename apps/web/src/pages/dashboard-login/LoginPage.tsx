@@ -120,9 +120,21 @@ export function LoginPage() {
   }
 
   return (
-    <main className="dash-centered">
-      <h1>FilsPay dashboard</h1>
-      <p className="dash-muted">Merchant sign-in.</p>
+    <div className="dash-login">
+      <main className="dash-login-panel">
+        <div className="dash-login-card">
+      <div className="dash-brand">
+        <span className="dash-brand-mark" aria-hidden="true">
+          F
+        </span>
+        FilsPay
+      </div>
+      <h1>{step.kind === "credentials" ? "Welcome back" : "Check your code"}</h1>
+      <p className="dash-muted">
+        {step.kind === "credentials"
+          ? "Sign in to your merchant dashboard."
+          : "Enter the one-time code to finish signing in."}
+      </p>
 
       <div role="alert" aria-live="assertive" className="dash-live">
         {error ? <p className="dash-error">{error}</p> : null}
@@ -169,7 +181,7 @@ export function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          <button type="submit" className="dash-button" disabled={submitting}>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
             {submitting ? "Signing in..." : "Continue"}
           </button>
         </form>
@@ -190,27 +202,60 @@ export function LoginPage() {
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
+              className="dash-otp-input"
+              maxLength={12}
               required
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
           </label>
-          <button type="submit" className="dash-button" disabled={submitting}>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
             {submitting ? "Verifying..." : "Verify"}
           </button>
-          <button
-            type="button"
-            className="dash-button"
-            disabled={submitting}
-            onClick={() => void handleResend()}
-          >
-            Resend code
-          </button>
-          <button type="button" className="dash-button" onClick={() => backToCredentials(null)}>
-            Start over
-          </button>
+          <div className="dash-login-secondary">
+            <button
+              type="button"
+              className="dash-button dash-button-ghost"
+              disabled={submitting}
+              onClick={() => void handleResend()}
+            >
+              Resend code
+            </button>
+            <button
+              type="button"
+              className="dash-button dash-button-ghost"
+              onClick={() => backToCredentials(null)}
+            >
+              Start over
+            </button>
+          </div>
         </form>
       )}
-    </main>
+        </div>
+      </main>
+
+      <aside className="dash-login-aside" aria-hidden="true">
+        <div className="dash-login-preview">
+          <div className="dash-login-preview-label">Next payout</div>
+          <div className="dash-login-preview-value">
+            1,284.250 <small>BHD</small>
+          </div>
+          <div className="dash-login-preview-bars">
+            <span style={{ height: "38%" }} />
+            <span style={{ height: "55%" }} />
+            <span style={{ height: "46%" }} />
+            <span style={{ height: "70%" }} />
+            <span style={{ height: "62%" }} />
+            <span style={{ height: "84%" }} />
+            <span style={{ height: "100%" }} />
+          </div>
+        </div>
+        <h2>Get paid, see every fils.</h2>
+        <p>
+          Payment links, captures, refunds and daily settlement on the Bahrain business day, all in
+          one place.
+        </p>
+      </aside>
+    </div>
   );
 }

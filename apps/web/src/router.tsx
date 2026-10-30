@@ -17,10 +17,14 @@ import { SettlementBatchListPage } from "./pages/settlement/SettlementBatchListP
 import { SettlementBatchDetailPage } from "./pages/settlement/SettlementBatchDetailPage.js";
 import { ReconciliationPage } from "./pages/settlement/ReconciliationPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
+import { RouteError } from "./components/RouteError.js";
 
 // MK: /refunds route removed until FP-212
 export const router = createBrowserRouter([
-  { path: "/pay/:token", element: <CheckoutPage /> },
+  // The bare host had no route, so visiting it showed React Router's raw
+  // "Unexpected Application Error! 404". It is the dashboard's front door.
+  { path: "/", element: <Navigate to="/dashboard" replace />, errorElement: <RouteError /> },
+  { path: "/pay/:token", element: <CheckoutPage />, errorElement: <RouteError /> },
 
   {
     // The session provider wraps the dashboard subtree only — never
@@ -32,6 +36,7 @@ export const router = createBrowserRouter([
         <Outlet />
       </DashboardAuthProvider>
     ),
+    errorElement: <RouteError />,
     children: [
       { path: "/dashboard/login", element: <LoginPage /> },
       {
@@ -101,4 +106,7 @@ export const router = createBrowserRouter([
       },
     ],
   },
+
+  // Anything else is a 404 page with a way back, not a crash screen.
+  { path: "*", element: <RouteError notFound /> },
 ]);
