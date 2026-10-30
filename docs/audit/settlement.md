@@ -44,3 +44,17 @@
 - **What it breaks:** close runs 3 h late ("daily close is running at 3am local").
 - **Fix:** convert the instant to its Asia/Bahrain date (`BusinessDate`) before building the window.
 - **Test:** `TestBusinessDate_UsesBahrainDateOfUTCInstant`. Run Go tests with `go test -p 1 ./...` — packages share one DB and the balance-refresh tests rebuild every merchant.
+
+## SET-6 (INCIDENT 2026-08-21) — duplicate "your payout is on the way" notifications
+- **Severity:** Medium (merchant-facing, no money moved)
+- **Where:** `apps/settlement/internal/settlement/payout_notify.go` `EnqueuePayoutNotifications`
+- **What's wrong:** check-then-act: SELECT paid batches `WHERE NOT EXISTS (settlement.paid event)`, then INSERT, with no lock or constraint. The daemon and a CLI run (or two daemon replicas) both pass the check and both insert.
+- **Why:** the NOT EXISTS guard is not atomic with the insert; nothing in the schema forbids two events per batch ("resolved, see FP-260" comment was wrong).
+- **What it breaks:** two `settlement.paid` outbox events → two webhooks/notifications per payout.
+- **Fix:** migration `0081_settlement_paid_once.sql` (dedupe existing rows, partial unique index on `outbox_events(aggregate_id) WHERE event_type='settlement.paid'`), and the insert uses `ON CONFLICT … DO NOTHING`; the count reflects rows actually inserted.
+- **Test:** `settlement/payout_notify_race_test.go` (8 concurrent enqueuers → exactly 1 event).
+
+## SET-7 — Test merchants in the real settlement run
+- **Severity:** High
+- **Where:** settlement already filters `test_mode = false` (`batch.go:123,490`). Root cause was upstream: `apps/api/src/admin/merchantFlags.ts` `reconcileSandboxFlag` flipped every test merchant to live, after which settlement correctly (but wrongly for the business) included them.
+- **Fix:** see money/fees wave (`docs/audit/money-fees.md`): the admin tool no longer touches `test_mode`. No Go change needed.
