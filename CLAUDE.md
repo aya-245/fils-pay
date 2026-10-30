@@ -13,8 +13,12 @@ commit footers or take actions unrelated to your task.
 - DB: `DATABASE_URL=... npm run migrate` first (tests use a real Postgres).
 - TS: `npm test`
 - Go (settlement), sequentially after TS since they share the DB:
-  `docker run --rm --network host -e DATABASE_URL=... -v <repo>/apps/settlement:/src -w /src golang:1.23 go test ./...`
-  Do not use `-short` to hide failures.
+  `docker run --rm --network host -e DATABASE_URL=... -v <repo>/apps/settlement:/src -w /src golang:1.23 go test -p 1 ./...`
+  `-p 1`: packages share one DB and the balance-refresh tests rebuild every
+  merchant. Do not use `-short` to hide failures; a skipped DB test is not a pass.
+- Reporting tests need a freshly migrated DB if API tests already ran on it.
+- Verify every claim a subagent or tool makes (test counts, "fixed", "already
+  done") by rerunning or reading the code yourself. See `ai/README.md`.
 - `WEBHOOK_SECRET_ENCRYPTION_KEY` must be base64 of exactly 32 bytes
   (`openssl rand -base64 32`).
 
@@ -30,9 +34,11 @@ commit footers or take actions unrelated to your task.
 ## Settlement
 - The business day is midnight to midnight Asia/Bahrain (UTC+3, no DST), via
   `BusinessDayWindow` in `apps/settlement/internal/settlement/window.go`.
-  Anything compared against batches must use the same day. ADR-0003 allows UTC
-  calendar months for monthly reports only; confirm with finance if totals do
-  not tie.
+  Anything compared against batches must use the same day, and monthly
+  windows (sweep, reports) use Asia/Bahrain month boundaries too. ADR-0003's
+  UTC month contradicts this and is recorded as a flawed ADR
+  (docs/audit/review-pass.md). Convert instants with `BusinessDate` before
+  `BusinessDayWindow` (the window takes a calendar date).
 - No language is "the reference": fee logic in Go and TS must both match
   ARCHITECTURE and ADR-0001; a disagreement is a bug to investigate.
 
