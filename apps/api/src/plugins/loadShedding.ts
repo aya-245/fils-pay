@@ -158,8 +158,11 @@ async function loadSheddingPlugin(app: FastifyInstance, opts: LoadSheddingOption
       return reject(reply, "inflight");
     }
     let group: LoadShedGroup | null = null;
+    // Match the ROUTE the router chose, not the raw URL: "/pay" spelled
+    // "%70ay" still reaches the pay handler but would skip the pay cap.
+    const routePath = request.routeOptions?.url ?? pathOf(request.url);
     for (const g of groups) {
-      if (g.match(request.method, pathOf(request.url))) {
+      if (g.match(request.method, routePath)) {
         group = g;
         break;
       }

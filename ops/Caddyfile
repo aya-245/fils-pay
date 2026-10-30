@@ -45,9 +45,10 @@
 # Partner API (server-to-server integrations, webhooks registration, etc.).
 {$API_HOST} {
 	import common
+	# No passive health check: with a single upstream, one failed request would
+	# mark it down for fail_duration and fail every request for seconds. The
+	# API sheds load itself (503 + Retry-After); Docker restarts it on crash.
 	reverse_proxy api:3000 {
-		# API restarting: fail fast instead of hanging the client.
 		lb_try_duration 2s
-		fail_duration 5s
 	}
 }

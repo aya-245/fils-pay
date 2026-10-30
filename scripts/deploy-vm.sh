@@ -28,9 +28,12 @@ envfile="$root/ops/.env.prod"
 images=(filspay-node:latest filspay-settlement:latest filspay-web:latest filspay-admin:latest)
 
 [[ -f $envfile ]] || { echo "missing $envfile — run scripts/env-keys.sh build <keys-dir> ops/.env.prod"; exit 1; }
+# Images are built from the working tree; refuse uncommitted changes so the
+# recorded DEPLOYED_COMMIT is exactly what runs.
+git -C "$root" diff --quiet HEAD -- || { echo "uncommitted changes: commit first (DEPLOYED_COMMIT must match the build)"; exit 1; }
 
 bahrain_hm=$(TZ=Asia/Bahrain date +%H%M)
-if [[ ${FORCE:-0} != 1 && $bahrain_hm -lt 0045 ]]; then
+if [[ ${FORCE:-0} != 1 ]] && (( 10#$bahrain_hm < 45 )); then   # base 10: "0008" is not octal
   echo "refusing to deploy at $(TZ=Asia/Bahrain date +%H:%M) Asia/Bahrain: settlement closes the previous day 00:00-00:45. FORCE=1 to override."
   exit 1
 fi

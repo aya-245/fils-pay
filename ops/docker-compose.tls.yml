@@ -18,6 +18,9 @@ services:
       ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST in .env.prod}
       API_HOST: ${API_HOST:?set API_HOST in .env.prod}
       ACME_EMAIL: ${ACME_EMAIL:-ops@example.com}
+      # Go GC target below the container limit so TLS/gzip bursts don't OOM it
+      # (measured ~40 MB under the live 150-VU load test).
+      GOMEMLIMIT: 100MiB
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -27,8 +30,8 @@ services:
       - admin
       - api
     cpus: 0.25
-    mem_limit: 64m
-    memswap_limit: 64m
+    mem_limit: 128m
+    memswap_limit: 128m
     logging:
       driver: json-file
       options:

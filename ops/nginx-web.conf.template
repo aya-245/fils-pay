@@ -1,4 +1,9 @@
 # Rendered by the nginx image entrypoint (envsubst) into conf.d/default.conf.
+map $http_x_forwarded_proto $fwd_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
 server {
     listen 8080;
     root /usr/share/nginx/html;
@@ -17,7 +22,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        # Keep the https that Caddy reports; fall back to this hop's scheme.
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
         proxy_connect_timeout 3s;
         proxy_read_timeout 30s;
         # API down/restarting: fail fast with a 503 the apps can show.

@@ -151,14 +151,18 @@ export function CheckoutPage() {
           setPayState({ kind: "processing" });
         } else if (statusCode === 400) {
           setPayState({ kind: "declined", message: "Some card details look wrong. Please check them and try again." });
+        } else if (code === "overloaded") {
+          // Shed before the pay handler ran: nothing was attempted.
+          setPayState({ kind: "declined", message: "We're very busy right now and you have not been charged. Please try again in a moment." });
         } else {
-          setPayState({ kind: "declined", message: "Something went wrong and you have not been charged. Please try again." });
+          // Any other 5xx / proxy timeout: the capture may already have
+          // happened server-side, so don't claim "not charged" — re-check the
+          // link instead (the link lock prevents a second charge).
+          setPayState({ kind: "processing" });
         }
       } else {
-        setPayState({
-          kind: "declined",
-          message: "We couldn't reach the payment service. Check your connection — you have not been charged — and try again.",
-        });
+        // Network failure mid-request: same reasoning, the outcome is unknown.
+        setPayState({ kind: "processing" });
       }
     } finally {
       inFlight.current = false;

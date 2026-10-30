@@ -61,6 +61,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!merchantId || !email || !password) {
       throw new BadRequestError("invalid_request", "merchantId, email and password are required");
     }
+    // Bound the values before they become rate-limiter keys (memory) or reach argon2.
+    if (typeof email !== "string" || email.length > 320 || String(merchantId).length > 64 || typeof password !== "string" || password.length > 1024) {
+      throw new BadRequestError("invalid_request", "merchantId, email and password are required");
+    }
     enforceRateLimit(reply, limits.loginIp, request.ip);
     enforceRateLimit(reply, limits.loginAccount, `${String(merchantId)}:${String(email).toLowerCase()}`);
 
