@@ -1,0 +1,40 @@
+# HTTPS overlay for the production stack:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml --env-file .env.prod up -d
+# Adds Caddy on 443 (and 80 for redirects / HTTP-01 if the firewall allows it)
+# in front of web, admin and api. Hostnames come from .env.prod:
+#   WEB_HOST, ADMIN_HOST, API_HOST (e.g. 168-144-92-39.sslip.io, admin.…, api.…)
+# Once this is up, the direct ports (3000/8080/8081) can be closed in the
+# firewall; they stay published only for backwards compatibility.
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    restart: always
+    ports:
+      - "443:443"
+      - "443:443/udp"
+      - "80:80"
+    environment:
+      WEB_HOST: ${WEB_HOST:?set WEB_HOST in .env.prod}
+      ADMIN_HOST: ${ADMIN_HOST:?set ADMIN_HOST in .env.prod}
+      API_HOST: ${API_HOST:?set API_HOST in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - admin
+      - api
+    cpus: 0.25
+    mem_limit: 64m
+    memswap_limit: 64m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
