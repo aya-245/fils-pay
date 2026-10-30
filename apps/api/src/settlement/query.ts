@@ -11,6 +11,9 @@ export interface SettlementBatchDto {
   grossFils: number;
   feeFils: number;
   netPayoutFils: number;
+  /** FP-300: refunds netted into this batch (gross refunded, and the MDR handed back). */
+  refundsFils: number;
+  refundFeeReversedFils: number;
   closedAt: string | null;
   paidAt: string | null;
 }
@@ -23,6 +26,8 @@ interface SettlementBatchRow {
   gross_fils: string | number;
   fee_fils: string | number;
   net_payout_fils: string | number;
+  refunds_fils: string | number;
+  refund_fee_reversed_fils: string | number;
   closed_at: Date | null;
   paid_at: Date | null;
 }
@@ -49,7 +54,8 @@ function toBatchDateString(d: Date): string {
 
 /**
  * Maps a settlement_batches row to its DTO. Invariant (enforced by the Go
- * worker at close): netPayoutFils === grossFils - feeFils for every batch.
+ * worker at close): netPayoutFils === grossFils - feeFils
+ * - (refundsFils - refundFeeReversedFils) for every batch (FP-300 netting).
  */
 function serializeBatch(row: SettlementBatchRow): SettlementBatchDto {
   return {
@@ -59,6 +65,8 @@ function serializeBatch(row: SettlementBatchRow): SettlementBatchDto {
     grossFils: Number(row.gross_fils),
     feeFils: Number(row.fee_fils),
     netPayoutFils: Number(row.net_payout_fils),
+    refundsFils: Number(row.refunds_fils ?? 0),
+    refundFeeReversedFils: Number(row.refund_fee_reversed_fils ?? 0),
     closedAt: row.closed_at ? row.closed_at.toISOString() : null,
     paidAt: row.paid_at ? row.paid_at.toISOString() : null,
   };
@@ -117,7 +125,7 @@ export async function listSettlementBatches(
   const decodedCursor = decodeCursor(filters.cursor);
 
   const result = await pool.query<SettlementBatchRow>(
-    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
+    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, refunds_fils, refund_fee_reversed_fils, closed_at, paid_at
        FROM settlement_batches
       WHERE merchant_id = $1
         AND ($2::date IS NULL OR batch_date >= $2)
@@ -166,7 +174,7 @@ export async function getSettlementBatch(
   input: { merchantId: string; batchId: string },
 ): Promise<SettlementBatchDetailDto | null> {
   const batchResult = await pool.query<SettlementBatchRow>(
-    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
+    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, refunds_fils, refund_fee_reversed_fils, closed_at, paid_at
        FROM settlement_batches WHERE id = $1 AND merchant_id = $2`,
     [input.batchId, input.merchantId],
   );
