@@ -156,10 +156,9 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
 
 
 /**
- * Rolls up a running daily refund summary, keyed by calendar date.
- * Called from the refund event path once refund events are wired into
- * the outbox (the consumer SELECT in runConsumerPass will include
- * "transaction.refunded" once the refund flow lands).
+ * Adds one refund to the merchant's daily rollup. Bucketed by the
+ * Asia/Bahrain calendar date (same as captures/settlement), never UTC, so a
+ * refund at 00:30 Bahrain (21:30 UTC the previous day) lands on the Bahrain day.
  */
 export async function applyDailySummaryRollup(
   client: PoolClient,
@@ -167,7 +166,7 @@ export async function applyDailySummaryRollup(
   occurredAt: Date,
   amountFils: number,
 ): Promise<void> {
-  const summaryDate = occurredAt.toISOString().slice(0, 10);
+  const summaryDate = toBahrainDateString(occurredAt);
   await client.query(
     `INSERT INTO merchant_daily_volume (merchant_id, volume_date, refund_count, refund_gross_fils, last_updated_at)
      VALUES ($1, $2, 1, $3, now())
@@ -180,12 +179,24 @@ export async function applyDailySummaryRollup(
 }
 
 /**
+ * refund.succeeded — payload carries { merchantId, amountFils, ... } and
+ * (when present) occurredAt, the refund's own timestamp. Falls back to the
+ * outbox row's created_at (same transaction as the refund).
+ */
+async function applyRefundSucceeded(client: PoolClient, row: OutboxEventRow): Promise<void> {
+  const payload = row.payload as { merchantId: string; amountFils: number; occurredAt?: string };
+  const parsed = payload.occurredAt ? new Date(payload.occurredAt) : row.created_at;
+  const when = Number.isNaN(parsed.getTime()) ? row.created_at : parsed;
+  await applyDailySummaryRollup(client, payload.merchantId, when, Number(payload.amountFils));
+}
+
+/**
  * Dispatches one outbox_events row to the applier for its event_type. The
  * `default` branch exists only so a future EventType addition not yet
  * wired into this switch fails loudly (a thrown error rolls back the whole
  * pass, per runConsumerPass's transactional discipline) rather than
  * silently dropping the event — runConsumerPass's own SELECT already
- * filters to the three types handled below, so this branch should never
+ * filters to the types handled below, so this branch should never
  * actually run against real data.
  */
 export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promise<void> {
@@ -196,6 +207,8 @@ export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promi
       return applyTransactionVoided(client, row);
     case "settlement.batch_closed":
       return applyBatchClosed(client, row);
+    case "refund.succeeded":
+      return applyRefundSucceeded(client, row);
     default:
       throw new Error(`applyEvent: unhandled event_type ${row.event_type}`);
   }

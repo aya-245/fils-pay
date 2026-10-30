@@ -1,12 +1,14 @@
-import { ZERO_FILS, compareFils, type Fils } from "@filspay/money";
+import { ZERO_FILS, compareFils, subtractFils, type Fils } from "@filspay/money";
 
 /** The subset of a `transactions` row a refund decision depends on. */
 export interface RefundableTransaction {
   id: string;
   merchantId: string;
   status: string;
+  /** Cumulative captured amount (`transactions.captured_fils`). */
   capturedFils: Fils;
-  refundableFils: Fils;
+  /** Cumulative refunded amount (`transactions.refunded_fils`). */
+  refundedFils: Fils;
 }
 
 export type RefundValidation =
@@ -17,9 +19,15 @@ export type RefundValidation =
 
 const REFUNDABLE_STATUSES = new Set(["captured", "partially_captured", "partially_refunded"]);
 
-/** How much this transaction may still return. */
+/**
+ * How much this transaction may still return: what was CAPTURED minus what
+ * has already been refunded. Never the authorized amount: authorized but
+ * uncaptured money never left the cardholder, so it cannot be refunded.
+ * Clamped at zero so an inconsistent row can never produce a negative ceiling.
+ */
 export function refundableAmount(txn: RefundableTransaction): Fils {
-  return txn.refundableFils;
+  if (compareFils(txn.refundedFils, txn.capturedFils) >= 0) return ZERO_FILS;
+  return subtractFils(txn.capturedFils, txn.refundedFils);
 }
 
 /** Decides whether `requestedAmountFils` may be refunded against `txn`. */

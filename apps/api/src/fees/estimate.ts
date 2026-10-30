@@ -1,11 +1,16 @@
-/** Estimated fee for a single capture, using float basis-point rates. */
+import { applyRateFils, toFils } from "@filspay/money";
+
+/**
+ * Fee for a single capture amount, in integer fils. Mirrors the capture path:
+ * MDR (basis points) first, then the negotiated discount applied to that fee
+ * (discountAdjustment.ts). Integer math only; no float rates.
+ */
 export function estimateFeeFils(
   amountFils: number,
   mdrBps: number,
   discountBps: number,
 ): number {
-  const mdrRate = mdrBps / 10_000;
-  const discountRate = discountBps / 10_000;
-  const feeBeforeDiscount = amountFils * mdrRate;
-  return Math.round(feeBeforeDiscount - feeBeforeDiscount * discountRate);
+  const feeBeforeDiscount = applyRateFils(toFils(amountFils), mdrBps);
+  const discount = applyRateFils(feeBeforeDiscount, discountBps);
+  return Number(feeBeforeDiscount) - Number(discount);
 }

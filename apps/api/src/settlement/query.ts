@@ -285,7 +285,7 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, merchantResult] = await Promise.all([
+  const [ledgerResult, settlementResult, pendingResult, discountResult, refundsResult, merchantResult] = await Promise.all([
     pool.query<{ net: string }>(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0) AS net
          FROM ledger_entries
@@ -300,8 +300,8 @@ export async function getReconciliationReport(
           AND status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
-    pool.query<{ amount_fils: string | number }>(
-      `SELECT te.amount_fils
+    pool.query<{ amount_fils: string | number; fee_fils: string | number | null }>(
+      `SELECT te.amount_fils, te.metadata->>'feeFils' AS fee_fils
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
@@ -309,24 +309,53 @@ export async function getReconciliationReport(
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
     ),
-    pool.query<{ mdr_bps: number; negotiated_discount_bps: number }>(
-      `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
+    pool.query<{ discount: string }>(
+      // Negotiated-discount ledger credits for transactions that have an
+      // unbatched capture in the window: they raise merchant_payable in the
+      // ledger, so pending must include them to tie out.
+      `SELECT COALESCE(SUM(le.amount_fils), 0) AS discount
+         FROM ledger_entries le
+        WHERE le.merchant_id = $1 AND le.account_id = 'merchant_payable'
+          AND le.direction = 'credit'
+          AND le.description = 'capture: negotiated discount adjustment'
+          AND le.occurred_at >= $2 AND le.occurred_at < $3
+          AND EXISTS (SELECT 1 FROM transaction_events te
+                       WHERE te.transaction_id = le.transaction_id
+                         AND te.event_type IN ('captured', 'partially_captured')
+                         AND te.settlement_batch_id IS NULL)`,
+      [input.merchantId, windowStart, windowEnd],
+    ),
+    pool.query<{ refunds_net: string }>(
+      // Unbatched succeeded refunds: the ledger already holds their legs
+      // (merchant_payable debit gross, credit fee reversal), so they reduce pending.
+      `SELECT COALESCE(SUM(amount_fils - fee_reversed_fils), 0) AS refunds_net
+         FROM refunds
+        WHERE merchant_id = $1 AND status = 'succeeded'
+          AND settlement_batch_id IS NULL
+          AND occurred_at >= $2 AND occurred_at < $3`,
+      [input.merchantId, windowStart, windowEnd],
+    ),
+    pool.query<{ mdr_bps: number }>(
+      `SELECT mdr_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     ),
   ]);
 
-  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
-  // so reading it here is the same as resolving the schedule
-  const merchant = merchantResult.rows[0];
-  const mdrBps = merchant?.mdr_bps ?? 0;
-  const discountBps = merchant?.negotiated_discount_bps ?? 0;
+  // Prefer the fee journaled at capture (event metadata.feeFils, integer);
+  // fall back to the merchant's current MDR only for events without it.
+  const mdrBps = merchantResult.rows[0]?.mdr_bps ?? 0;
 
   let pendingUnbatchedFils = 0;
   for (const row of pendingResult.rows) {
     const amountFils = Number(row.amount_fils);
-    const feeFils = estimateFeeFils(amountFils, mdrBps, discountBps);
+    const feeFils =
+      row.fee_fils !== null && row.fee_fils !== undefined
+        ? Number(row.fee_fils)
+        : estimateFeeFils(amountFils, mdrBps, 0);
     pendingUnbatchedFils += amountFils - feeFils;
   }
+  pendingUnbatchedFils += Number(discountResult.rows[0]?.discount ?? 0);
+  pendingUnbatchedFils -= Number(refundsResult.rows[0]?.refunds_net ?? 0);
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);
   const settlementNetPayoutFils = Number(settlementResult.rows[0]?.total ?? 0);
@@ -348,14 +377,23 @@ export interface SettlementSummaryDto {
   periodTo: string;
   transactionCount: number;
   totalCapturedFils: number;
+  refundCount: number;
+  totalRefundedFils: number;
+  netFils: number;
 }
 
 interface SettlementSummaryRow {
   transaction_count: string;
   total_captured_fils: string | number | null;
+  refund_count: string;
+  total_refunded_fils: string | number | null;
 }
 
-/** Gross captured in window, joined through transaction_events for batch parity. */
+/**
+ * Gross captured in window. Sums the per-event capture amount (not
+ * transactions.captured_fils, a running total that double-counts a
+ * transaction with several capture events), plus succeeded refunds in window.
+ */
 export async function getSettlementSummary(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
@@ -364,25 +402,33 @@ export async function getSettlementSummary(
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
   const result = await pool.query<SettlementSummaryRow>(
-    `WITH captured AS (
-       SELECT t.id, t.captured_fils
-         FROM transactions t
-         JOIN transaction_events te ON te.transaction_id = t.id
-        WHERE t.merchant_id = $1
-          AND te.event_type IN ('captured', 'partially_captured')
-          AND te.occurred_at >= $2 AND te.occurred_at < $3
-     )
-     SELECT COUNT(DISTINCT id) AS transaction_count,
-            COALESCE(SUM(captured_fils), 0) AS total_captured_fils
-       FROM captured`,
+    `SELECT (SELECT COUNT(DISTINCT te.transaction_id)
+               FROM transaction_events te JOIN transactions t ON t.id = te.transaction_id
+              WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
+                AND te.occurred_at >= $2 AND te.occurred_at < $3) AS transaction_count,
+            (SELECT COALESCE(SUM(te.amount_fils), 0)
+               FROM transaction_events te JOIN transactions t ON t.id = te.transaction_id
+              WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
+                AND te.occurred_at >= $2 AND te.occurred_at < $3) AS total_captured_fils,
+            (SELECT COUNT(*) FROM refunds
+              WHERE merchant_id = $1 AND status = 'succeeded'
+                AND occurred_at >= $2 AND occurred_at < $3) AS refund_count,
+            (SELECT COALESCE(SUM(amount_fils), 0) FROM refunds
+              WHERE merchant_id = $1 AND status = 'succeeded'
+                AND occurred_at >= $2 AND occurred_at < $3) AS total_refunded_fils`,
     [input.merchantId, windowStart, windowEnd],
   );
 
   const row = result.rows[0];
+  const totalCapturedFils = Number(row?.total_captured_fils ?? 0);
+  const totalRefundedFils = Number(row?.total_refunded_fils ?? 0);
   return {
     periodFrom: input.from,
     periodTo: input.to,
     transactionCount: Number(row?.transaction_count ?? 0),
-    totalCapturedFils: Number(row?.total_captured_fils ?? 0),
+    totalCapturedFils,
+    refundCount: Number(row?.refund_count ?? 0),
+    totalRefundedFils,
+    netFils: totalCapturedFils - totalRefundedFils,
   };
 }
