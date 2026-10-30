@@ -1,7 +1,25 @@
 # FilsPay — bugs found (short list)
 
-**73 code bugs fixed**, plus **25 misleading AI-instruction findings** and **1 tampered commit**.
-Full explanations: `AUDIT_REPORT.md` and `docs/audit/*.md`.
+**87 findings fixed.** The 73 listed below came from the audit and second review. 14 more came from
+security hardening, load testing, hosting and the final review:
+- session fixation;
+- login brute force;
+- proxy client IP;
+- webhook redirects and unbounded bodies;
+- missing security headers;
+- no CORS, so the browser apps could not reach the API;
+- the refunded-transaction page crash;
+- expired links shown as active;
+- the checkout network error shown as "not found";
+- the phantom 500 double-send;
+- a Postgres restart crashing the API;
+- missing pay-path indexes;
+- no load shedding;
+- no OTP delivery in production.
+
+Separately there are **25 misleading AI-instruction findings** and **1 tampered commit**.
+Every finding is in the required format (symptom, how found, root cause, fix, verification, existing data) in
+**`docs/FINDINGS.md`** (F-01…F-87).
 
 ## Settlement — Go (`apps/settlement`) · 11
 1. Scheme file rounded up, our ledger truncated → scheme total always a few fils over (`scheme_export.go`, `batch.go`)
