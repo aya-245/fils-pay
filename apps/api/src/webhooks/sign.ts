@@ -38,6 +38,23 @@ export function signPayload(
   return { timestamp, signature: `t=${timestamp},v1=${signature}` };
 }
 
+/**
+ * Serialises once and signs exactly those bytes. Callers MUST send `body`
+ * verbatim as the HTTP body; re-serialising the payload elsewhere (a plain
+ * JSON.stringify, whose key order differs from canonicalJson for
+ * jsonb-sourced payloads) makes a receiver verifying the raw body reject
+ * the delivery.
+ */
+export function signDeliveryBody(
+  payload: unknown,
+  secret: string,
+  timestamp: number = Math.floor(Date.now() / 1000),
+): { body: string; signature: string; timestamp: number } {
+  const body = canonicalJson(payload);
+  const mac = createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
+  return { body, signature: `t=${timestamp},v1=${mac}`, timestamp };
+}
+
 interface ParsedSignatureHeader {
   timestamp: number;
   signature: string;

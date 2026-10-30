@@ -3,7 +3,7 @@ import { Client, type Pool } from "pg";
 import type { Config } from "../config.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { decodeEncryptionKey, decryptSecret } from "./secretCrypto.js";
-import { signPayload } from "./sign.js";
+import { signDeliveryBody } from "./sign.js";
 import { buildEnvelope } from "./envelope.js";
 import { recordPayoutDisbursementEffect } from "./payoutDisbursement.js";
 import { WEBHOOK_DELIVERY_ID_HEADER, WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
@@ -156,7 +156,7 @@ async function attemptOneDelivery(
 ): Promise<void> {
   const key = decodeEncryptionKey(config.webhookSecretEncryptionKey);
   const secret = decryptSecret(row.secret_ciphertext, key);
-  const { signature } = signPayload(row.payload, secret);
+  const { signature, body: signedBody } = signDeliveryBody(row.payload, secret);
 
   if (row.attempt_count === 0) {
     const effect = PRE_DELIVERY_EFFECTS[row.event_type];
@@ -170,7 +170,7 @@ async function attemptOneDelivery(
       [WEBHOOK_DELIVERY_ID_HEADER]: row.delivery_event_id,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(row.payload),
+    body: signedBody,
     timeoutMs: config.webhookRequestTimeoutMs,
   });
 

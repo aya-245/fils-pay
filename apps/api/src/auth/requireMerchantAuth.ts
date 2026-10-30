@@ -86,6 +86,11 @@ export const requireMerchantAuth: preHandlerHookHandler = async (request: Fastif
   if (impersonationToken) {
     const grant = await lookupImpersonationGrant(request.server.db, impersonationToken);
     if (grant) {
+      // An impersonation grant is view-only. Enforce it here, for every route
+      // that uses requireMerchantAuth, rather than trusting each handler.
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        throw new ForbiddenError("forbidden");
+      }
       request.merchantAuth = {
         merchantId: grant.merchantId,
         actorType: "admin_impersonation",

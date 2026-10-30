@@ -55,7 +55,8 @@ export async function promoteSession(
 ): Promise<Date> {
   const expiresAt = new Date(Date.now() + sessionTtlHours * 3_600_000);
   await client.query(
-    `UPDATE sessions SET authenticated = true, authenticated_at = now(), expires_at = $2 WHERE id = $1`,
+    `UPDATE sessions SET authenticated = true, authenticated_at = now(), expires_at = $2
+      WHERE id = $1 AND authenticated = false AND revoked_at IS NULL`,
     [sessionId, expiresAt],
   );
   return expiresAt;
@@ -89,7 +90,8 @@ export async function lookupSession(
     `SELECT s.id AS session_id, s.merchant_user_id, mu.merchant_id, mu.role
        FROM live_sessions s
        JOIN merchant_users mu ON mu.id = s.merchant_user_id
-      WHERE s.token_hash = $1`,
+      WHERE s.token_hash = $1
+        AND s.authenticated = true`,
     [tokenHash],
   );
   const row = result.rows[0];

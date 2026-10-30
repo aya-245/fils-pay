@@ -71,7 +71,8 @@ export async function promoteAdminSession(
 ): Promise<Date> {
   const expiresAt = new Date(Date.now() + sessionTtlHours * 3_600_000);
   await client.query(
-    `UPDATE admin_sessions SET authenticated = true, authenticated_at = now(), expires_at = $2 WHERE id = $1`,
+    `UPDATE admin_sessions SET authenticated = true, authenticated_at = now(), expires_at = $2
+      WHERE id = $1 AND authenticated = false AND revoked_at IS NULL`,
     [adminSessionId, expiresAt],
   );
   return expiresAt;

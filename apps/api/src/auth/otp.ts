@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { timingSafeEqualHex } from "../lib/crypto.js";
 import { randomDigits } from "../lib/random.js";
 
@@ -55,4 +55,54 @@ export async function issueChallenge(
     throw new Error("issueChallenge: insert into otp_challenges returned no row");
   }
   return { id: row.id, code, expiresAt };
+}
+
+export type OtpTable = "otp_challenges" | "admin_otp_challenges";
+export type OtpClaimFailure = "gone" | "too_many_attempts";
+
+/**
+ * Atomically spends one guess from a challenge's budget and returns its
+ * salt/hash, or says why it can't. The increment happens BEFORE the
+ * comparison, in the same statement that checks `attempt_count <
+ * max_attempts`, so N parallel guesses can never get more than max_attempts
+ * comparisons (read-then-increment lets all of them read attempt_count=0).
+ * `table` is a closed union, never user input.
+ */
+export async function claimOtpAttempt(
+  db: Pool | PoolClient,
+  table: OtpTable,
+  challengeId: string,
+): Promise<
+  | { ok: true; id: string; codeSalt: string; codeHash: string }
+  | { ok: false; reason: OtpClaimFailure }
+> {
+  const claimed = await db.query<{ id: string; code_salt: string; code_hash: string }>(
+    `UPDATE ${table} SET attempt_count = attempt_count + 1
+      WHERE id = $1 AND consumed_at IS NULL AND expires_at > now() AND attempt_count < max_attempts
+      RETURNING id, code_salt, code_hash`,
+    [challengeId],
+  );
+  const row = claimed.rows[0];
+  if (row) return { ok: true, id: row.id, codeSalt: row.code_salt, codeHash: row.code_hash };
+
+  const state = await db.query<{ attempt_count: number; max_attempts: number; usable: boolean }>(
+    `SELECT attempt_count, max_attempts, (consumed_at IS NULL AND expires_at > now()) AS usable
+       FROM ${table} WHERE id = $1`,
+    [challengeId],
+  );
+  const s = state.rows[0];
+  if (s && s.usable && s.attempt_count >= s.max_attempts) return { ok: false, reason: "too_many_attempts" };
+  return { ok: false, reason: "gone" };
+}
+
+/** Single use: marks the challenge consumed only if nobody else already did. */
+export async function consumeOtpChallenge(
+  client: PoolClient,
+  table: OtpTable,
+  challengeId: string,
+): Promise<boolean> {
+  const r = await client.query(`UPDATE ${table} SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL`, [
+    challengeId,
+  ]);
+  return (r.rowCount ?? 0) > 0;
 }

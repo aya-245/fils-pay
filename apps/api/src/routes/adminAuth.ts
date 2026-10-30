@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { verifyPassword } from "../adminAuth/passwords.js";
 import { issueAdminChallenge, verifyOtpCode } from "../adminAuth/otp.js";
+import { claimOtpAttempt, consumeOtpChallenge } from "../auth/otp.js";
 import { sendAdminOtpCode } from "../adminAuth/notifier.js";
 import { requireAdminSession } from "../adminAuth/middleware.js";
 import {
@@ -123,61 +124,36 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new UnauthorizedError("no_pending_session");
     }
 
-    const challengeResult = await app.db.query<{
-      id: string;
-      code_salt: string;
-      code_hash: string;
-      attempt_count: number;
-      max_attempts: number;
-      expires_at: Date;
-      consumed_at: Date | null;
-    }>(
-      `SELECT id, code_salt, code_hash, attempt_count, max_attempts, expires_at, consumed_at
-         FROM admin_otp_challenges WHERE id = $1`,
-      [pending.otpChallengeId],
-    );
-    const challenge = challengeResult.rows[0];
-    if (!challenge || challenge.consumed_at !== null) {
-      throw new GoneError("otp_expired");
-    }
-    if (challenge.expires_at.getTime() <= Date.now()) {
+    // Spend a guess atomically BEFORE comparing (see claimOtpAttempt).
+    const claim = await claimOtpAttempt(app.db, "admin_otp_challenges", pending.otpChallengeId);
+    if (!claim.ok) {
+      if (claim.reason === "too_many_attempts") {
+        await revokeAdminSession(app.db, pending.adminSessionId);
+        throw new TooManyRequestsError("too_many_attempts");
+      }
       throw new GoneError("otp_expired");
     }
 
-    // admin path doesn't have the merchant race, the challenge row is read FOR UPDATE — MK
-    if (challenge.attempt_count >= challenge.max_attempts) {
-      await revokeAdminSession(app.db, pending.adminSessionId);
-      throw new TooManyRequestsError("too_many_attempts");
-    }
-
-    const matches = verifyOtpCode(code, challenge.code_salt, challenge.code_hash);
-    if (!matches) {
-      await app.db.query(
-        `UPDATE admin_otp_challenges SET attempt_count = attempt_count + 1 WHERE id = $1`,
-        [challenge.id],
-      );
+    if (typeof code !== "string" || !verifyOtpCode(code, claim.codeSalt, claim.codeHash)) {
       throw new UnauthorizedError("invalid_code");
     }
 
-    const adminUser = await withTransaction(app.db, async (client) => {
-      await client.query(`UPDATE admin_otp_challenges SET consumed_at = now() WHERE id = $1`, [
-        challenge.id,
-      ]);
+    const { adminUser } = await withTransaction(app.db, async (client) => {
+      if (!(await consumeOtpChallenge(client, "admin_otp_challenges", claim.id))) {
+        throw new GoneError("otp_expired");
+      }
       await promoteAdminSession(client, pending.adminSessionId, app.config.adminSessionTtlHours);
       const result = await client.query<{ role: AdminRole }>(
         `SELECT role FROM admin_users WHERE id = $1`,
         [pending.adminUserId],
       );
-      return result.rows[0];
+      return { adminUser: result.rows[0] };
     });
     if (!adminUser) {
       throw new Error("admin otp/verify: admin_users row disappeared mid-transaction");
     }
 
-    // Re-set the cookie so its browser-side lifetime matches the now-promoted
-    // session's full TTL rather than the short pending window.
-    // YA: why is the cookie set twice (login and verify)? Claude says remove one
-    // FH: the second one re-issues at the full session TTL. the merchant flow should do the same
+    // Browser lifetime matching the promoted session.
     reply.setCookie(app.config.adminCookieName, rawToken, {
       httpOnly: true,
       path: "/",
