@@ -4,9 +4,16 @@
 -- settlement.paid event per batch; EnqueuePayoutNotifications inserts with
 -- ON CONFLICT DO NOTHING against this index.
 
--- Keep the earliest event per batch, drop later duplicates.
-DELETE FROM outbox_events oe
- USING outbox_events earlier
+-- Keep the earliest event per batch and RETAG later duplicates instead of
+-- deleting them: webhook_deliveries.outbox_event_id references outbox_events
+-- (0022, no ON DELETE), and on a database where the incident happened the
+-- duplicate was already delivered, so a DELETE would fail on the foreign key
+-- and also erase the record of what merchants were actually sent. Neither
+-- the webhook dispatcher nor the reporting consumer subscribes to the
+-- '.duplicate' type, so it is inert.
+UPDATE outbox_events oe
+   SET event_type = 'settlement.paid.duplicate'
+  FROM outbox_events earlier
  WHERE oe.event_type = 'settlement.paid'
    AND earlier.event_type = 'settlement.paid'
    AND earlier.aggregate_id = oe.aggregate_id
