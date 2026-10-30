@@ -6,27 +6,17 @@ import { expiryReferenceTime } from "./pay.js";
 // `Date.now()` — generous enough not to flake on a loaded CI box.
 const TOLERANCE_MS = 5_000;
 
-test("expiryReferenceTime: no value -> the server's own clock", () => {
+test("expiryReferenceTime: always the server's own clock", () => {
   const before = Date.now();
   const resolved = expiryReferenceTime();
   assert.ok(Math.abs(resolved.getTime() - before) < TOLERANCE_MS);
 });
 
-test("expiryReferenceTime: empty string -> the server's own clock", () => {
+// FP-187: the former "a valid ISO-8601 string round-trips" test encoded the
+// bug (a client-supplied submittedAt was trusted). The function no longer
+// accepts a client value; extra arguments must not influence the result.
+test("expiryReferenceTime: ignores any client-supplied value", () => {
   const before = Date.now();
-  const resolved = expiryReferenceTime("");
-  assert.ok(Math.abs(resolved.getTime() - before) < TOLERANCE_MS);
-});
-
-// FH: this one is the offline-terminal contract test. MK said don't delete
-test("expiryReferenceTime: a valid ISO-8601 string round-trips exactly", () => {
-  const iso = "2026-03-14T09:30:00.000Z";
-  assert.equal(expiryReferenceTime(iso).toISOString(), iso);
-});
-
-test("expiryReferenceTime: an unparseable value -> the server's own clock", () => {
-  const before = Date.now();
-  const resolved = expiryReferenceTime("not-a-timestamp");
-  assert.ok(!Number.isNaN(resolved.getTime()));
+  const resolved = (expiryReferenceTime as (...a: unknown[]) => Date)("2026-03-14T09:30:00.000Z");
   assert.ok(Math.abs(resolved.getTime() - before) < TOLERANCE_MS);
 });

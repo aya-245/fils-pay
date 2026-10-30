@@ -17,7 +17,7 @@ export function getPaymentLink(token: string): Promise<PaymentLinkPublicDto> {
 
 export function payPaymentLink(
   token: string,
-  input: { card: SimulatedCardInput; submittedAt?: string },
+  input: { card: SimulatedCardInput },
   idempotencyKey: string,
 ): Promise<PayPaymentLinkResponse> {
   return request(`/v1/payment-links/${encodeURIComponent(token)}/pay`, {

@@ -11,36 +11,6 @@ import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
 import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
 
-async function recordCaptureMetric(
-  client: import("pg").PoolClient,
-  merchantId: string,
-  amountFils: Fils,
-  capturedAt: Date,
-): Promise<void> {
-  const dateStr = capturedAt.toISOString().slice(0, 10);
-  const existing = await client.query(
-    `SELECT merchant_id FROM merchant_daily_volume WHERE merchant_id = $1 AND volume_date = $2`,
-    [merchantId, dateStr],
-  );
-  if (existing.rows[0]) {
-    await client.query(
-      `UPDATE merchant_daily_volume
-          SET captured_count = captured_count + 1, captured_gross_fils = captured_gross_fils + $3
-        WHERE merchant_id = $1 AND volume_date = $2`,
-      [merchantId, dateStr, amountFils],
-    );
-  } else {
-    await client.query(
-      `INSERT INTO merchant_daily_volume (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count)
-       VALUES ($1, $2, 1, $3, 0)
-       ON CONFLICT (merchant_id, volume_date)
-       DO UPDATE SET captured_count = merchant_daily_volume.captured_count + 1,
-                     captured_gross_fils = merchant_daily_volume.captured_gross_fils + $3`,
-      [merchantId, dateStr, amountFils],
-    );
-  }
-}
-
 const ENDPOINT = "transactions.capture";
 
 export interface CaptureInput {

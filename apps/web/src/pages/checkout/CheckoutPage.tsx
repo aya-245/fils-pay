@@ -56,11 +56,10 @@ export function CheckoutPage() {
     // A fresh Idempotency-Key per explicit user action — every click,
     // including a "try again" after a decline, is a new attempt.
     const idempotencyKey = crypto.randomUUID();
-    const submittedAt = new Date().toISOString();
     setPayState({ kind: "submitting" });
 
     try {
-      const result = await payPaymentLink(token, { card, submittedAt }, idempotencyKey);
+      const result = await payPaymentLink(token, { card }, idempotencyKey);
       setPayState({ kind: "success", result });
     } catch (err) {
       if (err instanceof ApiError) {

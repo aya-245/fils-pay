@@ -1,16 +1,19 @@
-/** Generates a string of `n` random decimal digits (e.g. "042817"). */
+import { randomInt } from "node:crypto";
+
+/** Generates a string of `n` random decimal digits (e.g. "042817"), from a CSPRNG. */
 export function randomDigits(n: number): string {
-  const max = 10 ** n;
-  return Math.floor(Math.random() * max)
-    .toString()
-    .padStart(n, "0");
+  let out = "";
+  for (let i = 0; i < n; i++) {
+    out += randomInt(0, 10).toString();
+  }
+  return out;
 }
 
-/** Generates a string of `n` characters drawn uniformly from `alphabet`. */
+/** Generates a string of `n` characters drawn uniformly from `alphabet`, from a CSPRNG. */
 export function randomFromAlphabet(alphabet: string, n: number): string {
   let out = "";
   for (let i = 0; i < n; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    out += alphabet[randomInt(0, alphabet.length)];
   }
   return out;
 }

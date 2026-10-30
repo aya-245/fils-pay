@@ -32,13 +32,11 @@ interface CreatePaymentLinkBody {
 }
 
 /**
- * card: simulated card input. submittedAt: optional ISO-8601 instant from an
- * offline terminal; ignored unless the request is authenticated with an API
- * key.
+ * card: simulated card input. The server clock alone decides expiry; any
+ * client-supplied timestamp in the body is ignored.
  */
 interface PayPaymentLinkBody {
   card?: SimulatedCardInput;
-  submittedAt?: string;
 }
 
 interface ListPaymentLinksQuery {
@@ -47,8 +45,7 @@ interface ListPaymentLinksQuery {
   cursor?: string;
 }
 
-// am: this is the ownership check for create/cancel/list. cancel.ts relies on it, link ids are UUIDs
-// MK: it checks the path merchant, not that the link belongs to that merchant?
+// Path-merchant check only; handlers must ALSO scope every query by merchant_id (link ids are not secrets).
 function assertOwnMerchant(request: FastifyRequest<{ Params: MerchantIdParams }>): void {
   if (!request.merchantAuth || request.merchantAuth.merchantId !== request.params.merchantId) {
     throw new ForbiddenError("forbidden");
@@ -103,6 +100,7 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
     async (request, reply) => {
       assertOwnMerchant(request);
       const result = await cancelPaymentLink(app.db, {
+        merchantId: request.params.merchantId,
         id: request.params.id,
       });
       if (result.outcome === "canceled") {
@@ -154,7 +152,7 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
 
   app.post<{ Params: TokenParams; Body: PayPaymentLinkBody }>("/:token/pay", async (request, reply) => {
     const idempotencyKey = getIdempotencyKey(request);
-    const { card, submittedAt } = request.body ?? {};
+    const { card } = request.body ?? {};
     if (!card) {
       throw new BadRequestError("invalid_request", "card is required");
     }
@@ -163,7 +161,7 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
       app.db,
       app.acquirer,
       { paymentLinkReservationTimeoutSeconds: app.config.paymentLinkReservationTimeoutSeconds },
-      { token: request.params.token, card, idempotencyKey, submittedAt },
+      { token: request.params.token, card, idempotencyKey },
     );
     reply.code(result.statusCode).send(result.body);
   });

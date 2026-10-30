@@ -46,11 +46,12 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
       !body.transactionId ||
       !body.occurredAt ||
       !body.outcome ||
-      !body.note
+      !body.note ||
+      (body.outcome !== "cleared" && body.outcome !== "confirmed_fraud")
     ) {
       throw new BadRequestError(
         "invalid_request",
-        "callbackId, type, transactionId, occurredAt, outcome, and note are required",
+        "callbackId, type, transactionId, occurredAt, outcome (cleared | confirmed_fraud), and note are required",
       );
     }
 
