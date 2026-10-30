@@ -44,6 +44,11 @@ export interface Config {
   otpCodeLength: number;
   otpMaxAttempts: number;
   otpDevExpose: boolean;
+  /** Demo deployments only: email domains whose OTP is returned on screen even
+   *  in production (no email provider exists). Restricted to reserved TLDs
+   *  (.example/.test/.invalid/.localhost), so a real customer's code can never
+   *  be exposed by misconfiguration. Empty by default. */
+  otpDemoEmailDomains: string[];
 
   argon2MemoryKib: number;
   argon2TimeCost: number;
@@ -201,6 +206,31 @@ function parseBoolEnv(value: string | undefined, fallback: boolean): boolean {
   return value === "true" || value === "1";
 }
 
+const RESERVED_DEMO_TLDS = [".example", ".test", ".invalid", ".localhost"];
+
+/** OTP_DEMO_EMAIL_DOMAINS="alpharetail.example,filspay.test" — any entry not
+ *  under a reserved (RFC 2606/6761) TLD is rejected at boot. */
+function parseDemoEmailDomains(value: string | undefined): string[] {
+  if (!value) return [];
+  const domains = value.split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
+  for (const d of domains) {
+    if (!RESERVED_DEMO_TLDS.some((tld) => d.endsWith(tld))) {
+      throw new Error(`OTP_DEMO_EMAIL_DOMAINS: "${d}" is not a reserved demo domain (${RESERVED_DEMO_TLDS.join(", ")})`);
+    }
+  }
+  return domains;
+}
+
+/** True when the OTP for `email` may be shown in the response: dev/test mode,
+ *  or a seeded demo account on an allow-listed reserved domain. */
+export function shouldExposeOtp(config: Pick<Config, "otpDevExpose" | "otpDemoEmailDomains">, email: string): boolean {
+  if (config.otpDevExpose) return true;
+  const at = email.lastIndexOf("@");
+  if (at < 0 || config.otpDemoEmailDomains.length === 0) return false;
+  const domain = email.slice(at + 1).toLowerCase();
+  return config.otpDemoEmailDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
 const DEV_FALLBACK_WEBHOOK_KEY_B64 = "dGVzdC1rZXktZm9yLWRldi1vbmx5LW5vdC1mb3ItcHJvZA==";
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -276,6 +306,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     otpCodeLength: parseIntEnv(env.OTP_CODE_LENGTH, 6),
     otpMaxAttempts: parseIntEnv(env.OTP_MAX_ATTEMPTS, 5),
     otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, nodeEnv !== "production"),
+    otpDemoEmailDomains: parseDemoEmailDomains(env.OTP_DEMO_EMAIL_DOMAINS),
 
     argon2MemoryKib: parseIntEnv(env.ARGON2_MEMORY_KIB, 19_456),
     argon2TimeCost: parseIntEnv(env.ARGON2_TIME_COST, 2),

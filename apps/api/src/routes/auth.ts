@@ -1,3 +1,4 @@
+import { shouldExposeOtp } from "../config.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { verifyPassword } from "../auth/passwords.js";
 import { claimOtpAttempt, consumeOtpChallenge, issueChallenge, verifyOtpCode } from "../auth/otp.js";
@@ -115,8 +116,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       otpRequired: true,
       otpExpiresAt: expiresAt.toISOString(),
     };
-    // dev only — stripped in production builds
-    if (app.config.otpDevExpose) {
+    // dev/test, or a seeded demo account on a reserved domain (config.ts shouldExposeOtp)
+    if (shouldExposeOtp(app.config, recipient.email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);
@@ -256,7 +257,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     );
 
     const responseBody: Record<string, unknown> = { otpRequired: true, otpExpiresAt: expiresAt.toISOString() };
-    if (app.config.otpDevExpose) {
+    if (shouldExposeOtp(app.config, userResult.rows[0]?.email ?? "")) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);

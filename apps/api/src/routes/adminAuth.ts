@@ -1,3 +1,4 @@
+import { shouldExposeOtp } from "../config.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { verifyPassword } from "../adminAuth/passwords.js";
 import { issueAdminChallenge, verifyOtpCode } from "../adminAuth/otp.js";
@@ -110,7 +111,7 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       otpRequired: true,
       otpExpiresAt: expiresAt.toISOString(),
     };
-    if (app.config.otpDevExpose) {
+    if (shouldExposeOtp(app.config, user.email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);
