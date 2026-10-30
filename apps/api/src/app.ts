@@ -6,6 +6,7 @@ import { cookiesPlugin } from "./plugins/cookies.js";
 import { securityHeaders } from "./plugins/securityHeaders.js";
 import { multipartPlugin } from "./plugins/multipart.js";
 import { errorHandler } from "./plugins/errorHandler.js";
+import { isPayRoute, loadShedding } from "./plugins/loadShedding.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { businessProfileRoutes } from "./routes/businessProfile.js";
@@ -53,6 +54,21 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.decorate("acquirer", createAcquirerSimulator(config));
   app.decorate("webhookTransport", options.webhookTransport ?? createFetchTransport());
 
+  // First, so a shed request costs one onRequest hook and nothing else.
+  app.register(loadShedding, {
+    maxInflight: config.apiMaxInflight,
+    groups: [
+      {
+        name: "pay",
+        match: isPayRoute,
+        maxInflight: config.apiMaxInflightPay,
+        maxQueue: config.apiPayQueueMax,
+        maxQueueWaitMs: config.apiPayQueueWaitMs,
+      },
+    ],
+    maxEventLoopDelayMs: config.apiShedEventLoopDelayMs,
+    retryAfterSeconds: config.apiShedRetryAfterSeconds,
+  });
   app.register(securityHeaders, { hsts: config.cookieSecure });
   app.register(cookiesPlugin);
   app.register(multipartPlugin, { config });

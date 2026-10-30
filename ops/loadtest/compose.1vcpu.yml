@@ -1,0 +1,21 @@
+# Load-test overlay: emulate the 1 vCPU target box on a bigger workstation by
+# pinning EVERY service of the stack onto one physical core (LOADTEST_CPU,
+# default 11). The per-container caps from docker-compose.prod.yml (api 0.5
+# cpu / 512 MB, postgres 768 MB, ...) still apply on top, so the API gets at
+# most half of that one core and competes with postgres for the rest, exactly
+# like on the server. Run k6 on other cores (see ops/loadtest/README.md).
+services:
+  postgres:
+    cpuset: "${LOADTEST_CPU:-11}"
+  api:
+    cpuset: "${LOADTEST_CPU:-11}"
+  reporting:
+    cpuset: "${LOADTEST_CPU:-11}"
+  settlement:
+    cpuset: "${LOADTEST_CPU:-11}"
+  web:
+    cpuset: "${LOADTEST_CPU:-11}"
+  admin:
+    cpuset: "${LOADTEST_CPU:-11}"
+  migrate:
+    cpuset: "${LOADTEST_CPU:-11}"

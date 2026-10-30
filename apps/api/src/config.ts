@@ -16,6 +16,27 @@ export interface Config {
   pgPoolMin: number;
   pgPoolIdleTimeoutMs: number;
   pgPoolConnectionTimeoutMs: number;
+  /** Server-side `statement_timeout` for every API connection, ms. 0 disables. */
+  pgStatementTimeoutMs: number;
+
+  /** Load shedding (plugins/loadShedding.ts). Requests over these caps get an
+   *  immediate 503 + Retry-After instead of queueing until they time out.
+   *  0 disables the respective check. */
+  apiMaxInflight: number;
+  /** Separate, tighter cap for `POST /v1/payment-links/:token/pay`, the only
+   *  route that holds DB connections across two acquirer round-trips. Keep it
+   *  at or below (PG_POOL_MAX - 4) / 2 (the production default) so every admitted pay has a link-lock
+   *  connection AND a working connection for authorize/capture. */
+  apiMaxInflightPay: number;
+  /** Pay requests allowed to wait (FIFO) for a slot once the cap is hit, and
+   *  for how long, before they are shed. Absorbs bursts without letting a
+   *  queue build up that would blow every admitted request's latency. */
+  apiPayQueueMax: number;
+  apiPayQueueWaitMs: number;
+  /** Shed when the sampled event-loop delay (p90 over the last window) exceeds this, ms. */
+  apiShedEventLoopDelayMs: number;
+  /** Retry-After header value on a shed response, seconds. */
+  apiShedRetryAfterSeconds: number;
 
   sessionTtlHours: number;
   pendingSessionTtlMinutes: number;
@@ -224,15 +245,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("loadConfig: ACQUIRER_CALLBACK_SIGNING_SECRET is required when NODE_ENV=production");
   }
 
+  // Each admitted pay holds two pooled connections (link lock + the
+  // authorize/capture transaction); keep a few spare for everything else.
+  const pgPoolMax = parseIntEnv(env.PG_POOL_MAX, 5);
+  const defaultPayCap = Math.max(1, Math.floor((pgPoolMax - 4) / 2));
+
   return {
     nodeEnv,
     port: parseIntEnv(env.PORT, 3000),
     databaseUrl,
 
-    pgPoolMax: parseIntEnv(env.PG_POOL_MAX, 5),
+    pgPoolMax,
     pgPoolMin: parseIntEnv(env.PG_POOL_MIN, 0),
     pgPoolIdleTimeoutMs: parseIntEnv(env.PG_POOL_IDLE_TIMEOUT_MS, 30_000),
     pgPoolConnectionTimeoutMs: parseIntEnv(env.PG_POOL_CONNECTION_TIMEOUT_MS, 5_000),
+    pgStatementTimeoutMs: parseIntEnv(env.PG_STATEMENT_TIMEOUT_MS, 15_000),
+
+    // Shedding is on by default only in production; dev/test keep the old
+    // queue-everything behaviour unless the knobs are set explicitly.
+    apiMaxInflight: parseIntEnv(env.API_MAX_INFLIGHT, nodeEnv === "production" ? 300 : 0),
+    apiMaxInflightPay: parseIntEnv(env.API_MAX_INFLIGHT_PAY, nodeEnv === "production" ? defaultPayCap : 0),
+    apiPayQueueMax: parseIntEnv(env.API_PAY_QUEUE_MAX, nodeEnv === "production" ? defaultPayCap : 0),
+    apiPayQueueWaitMs: parseIntEnv(env.API_PAY_QUEUE_WAIT_MS, 200),
+    apiShedEventLoopDelayMs: parseIntEnv(env.API_SHED_EVENT_LOOP_DELAY_MS, nodeEnv === "production" ? 250 : 0),
+    apiShedRetryAfterSeconds: parseIntEnv(env.API_SHED_RETRY_AFTER_SECONDS, 1),
 
     sessionTtlHours: parseIntEnv(env.SESSION_TTL_HOURS, 12),
     pendingSessionTtlMinutes: parseIntEnv(env.PENDING_SESSION_TTL_MINUTES, 10),

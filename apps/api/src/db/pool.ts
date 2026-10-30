@@ -17,7 +17,13 @@ export function createPool(config: Config): Pool {
     connectionString: config.databaseUrl,
     max: config.pgPoolMax,
     idleTimeoutMillis: config.pgPoolIdleTimeoutMs,
+    // Waiting for a pooled connection longer than this fails the request
+    // (mapped to 503 by plugins/errorHandler.ts) instead of queueing it until
+    // the client gives up anyway.
     connectionTimeoutMillis: config.pgPoolConnectionTimeoutMs,
+    // Server-side cap per statement; a runaway query cannot pin a connection
+    // (and, inside pay.ts, a link row lock) indefinitely.
+    ...(config.pgStatementTimeoutMs > 0 ? { statement_timeout: config.pgStatementTimeoutMs } : {}),
   });
 
   // `pg` emits 'error' on the pool when an idle client's connection dies
@@ -27,6 +33,23 @@ export function createPool(config: Config): Pool {
   // taking the API down.
   pool.on("error", (err) => {
     console.error("[pg pool] unexpected error on idle client", { date: formatIsoDate(new Date()), err });
+  });
+
+  // pg-pool's idle listener is removed while a client is checked out, so a
+  // backend that dies BETWEEN queries of a checked-out client (Postgres
+  // restart / admin shutdown while pay.ts holds the link-lock connection
+  // across the acquirer call) emitted 'error' with no listener: an
+  // uncaughtException that took the whole API down. The in-flight query
+  // still rejects (-> 503 via errorHandler) and pg-pool discards the dead
+  // client on release (!client._queryable), so logging is all that's needed.
+  pool.on("connect", (client) => {
+    client.on("error", (err) => {
+      console.error("[pg pool] connection lost on checked-out client", {
+        date: formatIsoDate(new Date()),
+        message: err.message,
+        code: (err as { code?: string }).code,
+      });
+    });
   });
 
   if (process.env.LOG_LEVEL === "debug") {

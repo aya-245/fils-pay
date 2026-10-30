@@ -3,17 +3,40 @@
 # and shipped with scripts/deploy-vm.sh, so nothing compiles on the small box.
 # Every secret comes from ops/.env.prod (built with scripts/env-keys.sh; never committed).
 # Postgres is reachable only on the compose network.
+#
+# Resource budget (target box: 1 vCPU, 2 GB RAM; API capped at 0.5 vCPU / 512 MB):
+#   postgres 768m | api 512m, 0.5 cpu | reporting 160m | settlement 96m
+#   web 48m | admin 48m | (+ caddy 64m, docker-compose.tls.yml) => ~1.7 GB of
+#   limits; measured peak use under load is ~0.8 GB (postgres <=570m incl.
+#   reclaimable cache, api <=85m). The rest is the kernel, dockerd, page cache.
+# CPU caps are per-container quotas; postgres is deliberately uncapped so it
+# can use whatever the API's 0.5 leaves. Measured capacity: docs/CAPACITY.md.
+# max_connections 110 >= api pool 88 + LISTEN 1 + reporting 4 + settlement 4
+#   + migrate/integrity jobs + 3 superuser-reserved.
+#
+# Optional overrides (shell env or --env-file, defaults keep deploy-vm.sh as-is):
+#   FILSPAY_ENV_FILE   env_file for the app containers   (default .env.prod)
+#   FILSPAY_IMAGE_TAG  tag of the four filspay-* images  (default latest)
+#   API_HOST_PORT / WEB_HOST_PORT / ADMIN_HOST_PORT      (default 3000/8080/8081)
 
 x-node: &node
-  image: filspay-node:latest
+  image: filspay-node:${FILSPAY_IMAGE_TAG:-latest}
   build:
     context: ..
     dockerfile: ops/Dockerfile.node
-  env_file: .env.prod
-  restart: unless-stopped
+  env_file: ${FILSPAY_ENV_FILE:-.env.prod}
+  restart: always
+  # tini as PID 1: forwards SIGTERM to node, reaps zombies, and lets a crashed
+  # node process take the container down so the restart policy kicks in.
+  init: true
   depends_on:
     postgres:
       condition: service_healthy
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
   postgres:
@@ -22,6 +45,31 @@ services:
       POSTGRES_USER: filspay
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in ops/.env.prod}
       POSTGRES_DB: filspay
+    # Tuned for a 2 GB box shared with the app. Durability settings
+    # (fsync, synchronous_commit, full_page_writes) are left at their safe
+    # defaults on purpose: an acknowledged payment must survive a crash.
+    command:
+      - postgres
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-110}
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - wal_buffers=8MB
+      - -c
+      - max_wal_size=1GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+    shm_size: 128m
+    mem_limit: 768m
     volumes:
       - filspay_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -29,61 +77,117 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-    restart: unless-stopped
+    restart: always
+    stop_grace_period: 30s
+    logging: *logging
 
   migrate:
     <<: *node
     command: ["npm", "run", "migrate"]
     restart: "no"
+    init: false
     profiles: ["jobs"]
 
   api:
     <<: *node
-    command: ["npx", "tsx", "apps/api/src/index.ts"]
+    # node + the tsx loader directly: one process instead of npx -> tsx -> node
+    # (~80 MB less RSS, signals reach the app), with tini above it.
+    command: ["node", "--import", "tsx", "apps/api/src/index.ts"]
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
+      # Pool sizing / load shedding (apps/api/src/config.ts, docs/CAPACITY.md).
+      # Every admitted pay holds 2 connections (link lock + authorize/capture),
+      # so PG_POOL_MAX must stay >= 2 * API_MAX_INFLIGHT_PAY + a few for reads.
+      PG_POOL_MAX: ${API_PG_POOL_MAX:-88}
+      PG_POOL_CONNECTION_TIMEOUT_MS: ${API_PG_POOL_CONNECTION_TIMEOUT_MS:-1500}
+      PG_STATEMENT_TIMEOUT_MS: ${API_PG_STATEMENT_TIMEOUT_MS:-15000}
+      API_MAX_INFLIGHT: ${API_MAX_INFLIGHT:-300}
+      API_MAX_INFLIGHT_PAY: ${API_MAX_INFLIGHT_PAY:-40}
+      API_PAY_QUEUE_MAX: ${API_PAY_QUEUE_MAX:-40}
+      API_PAY_QUEUE_WAIT_MS: ${API_PAY_QUEUE_WAIT_MS:-200}
+      API_SHED_EVENT_LOOP_DELAY_MS: ${API_SHED_EVENT_LOOP_DELAY_MS:-250}
+      API_SHED_RETRY_AFTER_SECONDS: ${API_SHED_RETRY_AFTER_SECONDS:-1}
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
     ports:
-      - "3000:3000"
+      - "${API_HOST_PORT:-3000}:3000"
 
   reporting:
     <<: *node
-    command: ["npx", "tsx", "apps/reporting/src/index.ts"]
+    command: ["node", "--import", "tsx", "apps/reporting/src/index.ts"]
+    environment:
+      NODE_OPTIONS: --max-old-space-size=112
+      PG_POOL_MAX: "3"
+    cpus: 0.25
+    mem_limit: 160m
+    memswap_limit: 160m
 
   settlement:
-    image: filspay-settlement:latest
+    image: filspay-settlement:${FILSPAY_IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: ops/Dockerfile.go
     command: ["./settlement", "daemon"]
-    env_file: .env.prod
-    restart: unless-stopped
+    env_file: ${FILSPAY_ENV_FILE:-.env.prod}
+    environment:
+      SETTLEMENT_PG_POOL_MAX_CONNS: "4"
+      GOMEMLIMIT: 80MiB
+    cpus: 0.25
+    mem_limit: 96m
+    memswap_limit: 96m
+    restart: always
+    init: true
+    logging: *logging
     depends_on:
       postgres:
         condition: service_healthy
 
   web:
-    image: filspay-web:latest
+    image: filspay-web:${FILSPAY_IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: ops/Dockerfile.web
       args:
         APP: web
-        API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+        # Same-origin: nginx in this image proxies /api/* to api:3000.
+        API_URL: /api
         WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
     ports:
-      - "8080:8080"
-    restart: unless-stopped
+      - "${WEB_HOST_PORT:-8080}:8080"
+    cpus: 0.25
+    mem_limit: 48m
+    memswap_limit: 48m
+    restart: always
+    logging: *logging
 
   admin:
-    image: filspay-admin:latest
+    image: filspay-admin:${FILSPAY_IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: ops/Dockerfile.web
       args:
         APP: admin
-        API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+        API_URL: /api
         WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
     ports:
-      - "8081:8080"
-    restart: unless-stopped
+      - "${ADMIN_HOST_PORT:-8081}:8080"
+    cpus: 0.25
+    mem_limit: 48m
+    memswap_limit: 48m
+    restart: always
+    logging: *logging
 
 volumes:
   filspay_pgdata:

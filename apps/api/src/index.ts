@@ -6,7 +6,31 @@ import { formatIsoDate } from "./lib/dateFormat.js";
 import { startWebhookDispatcher, type WebhookDispatcherHandle } from "./webhooks/dispatcher.js";
 import { createFetchTransport } from "./webhooks/transport.js";
 
+/** Hard cap on graceful shutdown; Docker's stop_grace_period is 10s by default. */
+const SHUTDOWN_DEADLINE_MS = 8_000;
+
+/**
+ * Crash-only on programming errors: log, then exit non-zero so the container
+ * restart policy brings up a clean process. Continuing after an
+ * uncaughtException leaves the process in an undefined state (half-released
+ * pool clients, a dead LISTEN connection), which is worse than a 1-2s restart.
+ * Every money write is a single DB transaction, so dying mid-request loses
+ * nothing that was committed and commits nothing that was not.
+ */
+function installFatalHandlers(): void {
+  const die = (kind: string) => (err: unknown) => {
+    try {
+      console.error(`[index] fatal ${kind}; exiting so the supervisor restarts us`, err);
+    } finally {
+      process.exit(1);
+    }
+  };
+  process.on("uncaughtException", die("uncaughtException"));
+  process.on("unhandledRejection", die("unhandledRejection"));
+}
+
 async function main(): Promise<void> {
+  installFatalHandlers();
   const config = loadConfig(process.env);
   console.log(`[index] booting, date=${formatIsoDate(new Date())}`);
   const pool = createPool(config);
@@ -40,15 +64,24 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[index] received ${signal}, shutting down`);
+    // Never hang on a stuck dispatcher pass or a long-lived keep-alive socket.
+    setTimeout(() => {
+      console.error(`[index] shutdown exceeded ${SHUTDOWN_DEADLINE_MS}ms, forcing exit`);
+      process.exit(1);
+    }, SHUTDOWN_DEADLINE_MS).unref();
+    let exitCode = 0;
     dispatcher
       .stop()
+      // app.close() stops accepting connections and waits for in-flight
+      // requests (open pay transactions COMMIT or ROLLBACK) before resolving.
       .then(() => app.close())
       .then(() => pool.end())
       .catch((err: unknown) => {
+        exitCode = 1;
         console.error("[index] error during shutdown", err);
       })
       .finally(() => {
-        process.exit(0);
+        process.exit(exitCode);
       });
   };
 
@@ -57,6 +90,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error(err);
-  process.exitCode = 1;
+  // Boot failure (bad config, DB unreachable): exit now, non-zero, rather
+  // than linger with a half-built pool keeping the event loop alive.
+  console.error("[index] boot failed", err);
+  process.exit(1);
 });
