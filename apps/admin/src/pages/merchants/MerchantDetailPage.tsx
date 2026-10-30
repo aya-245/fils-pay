@@ -9,7 +9,7 @@ import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd, parseSignedBhdInput, signedBhd } from "../../format.js";
+import { bhd, parseSignedBhdInput, refundsNettedFils, signedBhd } from "../../format.js";
 import type {
   AdminMerchantDetail,
   BalanceAdjustmentResult,
@@ -679,6 +679,7 @@ export function MerchantDetailPage() {
               <th>Status</th>
               <th>Gross</th>
               <th>Fee</th>
+              <th title="Refunds minus the MDR fee they reverse">Refunds netted</th>
               <th>Net payout</th>
             </tr>
           </thead>
@@ -689,6 +690,7 @@ export function MerchantDetailPage() {
                 <td>{batch.status}</td>
                 <td>{bhd(batch.grossFils)}</td>
                 <td>{bhd(batch.feeFils)}</td>
+                <td>{refundsNettedFils(batch) === 0 ? "—" : bhd(-refundsNettedFils(batch))}</td>
                 <td>{bhd(batch.netPayoutFils)}</td>
               </tr>
             ))}

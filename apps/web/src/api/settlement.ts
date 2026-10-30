@@ -6,7 +6,14 @@ import type {
   SettlementBatchListResponse,
   SettlementBatchTransactionListResponse,
   SettlementBatchStatus,
+  SettlementSummaryDto,
 } from "../types.js";
+
+/** `GET /v1/settlement/summary?from&to` (owner/finance; YYYY-MM-DD Bahrain
+ *  business dates, `to` exclusive): captured, refunds and net in window. */
+export function getSettlementSummary(query: { from: string; to: string }): Promise<SettlementSummaryDto> {
+  return request(`/v1/settlement/summary${buildQuery({ ...query })}`);
+}
 
 /** Read-only settlement report endpoints, all merchant-scoped from
  *  the session — nothing here triggers or mutates a batch. */

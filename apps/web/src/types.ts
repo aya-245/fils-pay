@@ -215,13 +215,19 @@ export interface ReplayResponse {
 // --- settlement / reconciliation ---
 export type SettlementBatchStatus = "open" | "closed" | "paid";
 
-/** @property netPayoutFils Always exactly grossFils - feeFils. */
+/** @property netPayoutFils grossFils − feeFils − (refunds − fee reversed)
+ *  since FP-300 — NOT simply gross − fee once a batch nets refunds (see
+ *  pages/settlement/batchBreakdown.ts). */
 export interface SettlementBatchDto {
   id: string;
   batchDate: string;
   status: SettlementBatchStatus;
   grossFils: number;
   feeFils: number;
+  /** settlement_batches.refunds_fils — optional: not serialized by the API yet. */
+  refundsFils?: number;
+  /** settlement_batches.refund_fee_reversed_fils — optional, as above. */
+  refundFeeReversedFils?: number;
   netPayoutFils: number;
   closedAt: string | null;
   paidAt: string | null;
@@ -315,6 +321,18 @@ export interface TopLinksResponse {
   links: TopLinkDto[];
   readModelAsOf: string;
   live: boolean;
+}
+
+/** `GET /v1/settlement/summary` (owner/finance) — settlement/query.ts. */
+export interface SettlementSummaryDto {
+  periodFrom: string;
+  periodTo: string;
+  transactionCount: number;
+  totalCapturedFils: number;
+  refundCount: number;
+  totalRefundedFils: number;
+  /** totalCapturedFils − totalRefundedFils (before fees). */
+  netFils: number;
 }
 
 // --- refunds (FP-300) ---

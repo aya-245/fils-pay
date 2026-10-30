@@ -4,6 +4,7 @@ import { rebuildAnalytics, rebuildBalances, runBatch } from "../../api/settlemen
 import { recalculateMdr } from "../../api/mdrRecalculation.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { refundsNettedFils } from "../../format.js";
 import type {
   AnalyticsRebuildSummary,
   BalanceRebuildSummary,
@@ -180,6 +181,7 @@ export function SettlementPage() {
                   <th>Batch</th>
                   <th>Gross</th>
                   <th>Fee</th>
+                  <th title="Refunds minus the MDR fee they reverse">Refunds netted</th>
                   <th>Net payout</th>
                   <th>Already closed</th>
                   <th>Already paid</th>
@@ -196,6 +198,7 @@ export function SettlementPage() {
                     </td>
                     <td>{bhd(outcome.grossFils)}</td>
                     <td>{bhd(outcome.feeFils)}</td>
+                    <td>{refundsNettedFils(outcome) === 0 ? "—" : bhd(-refundsNettedFils(outcome))}</td>
                     <td>{bhd(outcome.netPayoutFils)}</td>
                     <td>{outcome.alreadyClosed ? "yes" : "no"}</td>
                     <td>{outcome.alreadyPaid ? "yes" : "no"}</td>

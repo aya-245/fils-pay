@@ -10,6 +10,17 @@ export function signedBhd(fils: number): string {
   return fils > 0 ? `+${bhd(fils)}` : bhd(fils);
 }
 
+/**
+ * What refunds took back from a batch payout: (gross − fee) − net, i.e.
+ * refunds − MDR fee reversed — exactly how apps/settlement nets them
+ * (payable.go ApplyRefundsToPayout). The admin wire shapes carry only
+ * gross/fee/net, so without this a batch with refunds showed a net that
+ * didn't equal gross − fee and nothing explained the difference.
+ */
+export function refundsNettedFils(batch: { grossFils: number; feeFils: number; netPayoutFils: number }): number {
+  return batch.grossFils - batch.feeFils - batch.netPayoutFils;
+}
+
 export type SignedBhdResult = { ok: true; fils: number } | { ok: false; message: string };
 
 /**

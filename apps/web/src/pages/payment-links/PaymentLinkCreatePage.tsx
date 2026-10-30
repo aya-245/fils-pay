@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { createPaymentLink } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { localDateTimeToIso } from "../../format.js";
+import { localDateTimeToIso, parseBhdInput } from "../../format.js";
 
 /**
  * `POST /v1/merchants/:merchantId/payment-links`, `owner`/`finance`
@@ -24,24 +24,30 @@ export function PaymentLinkCreatePage() {
   const { me } = useDashboardAuth();
   const navigate = useNavigate();
 
-  const [amountFils, setAmountFils] = useState("");
+  const [amountBhd, setAmountBhd] = useState("");
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
+  // Default: one week from now, in the browser's local wall time.
+  const [expiresAt, setExpiresAt] = useState(() => {
+    const d = new Date(Date.now() + 7 * 86_400_000);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // YA: amount typed as raw fils, no BD conversion. intentional for now
+  // Typed in BD (3 decimals) like every other money input; sent as integer
+  // fils via @filspay/money's string parser — the wire contract is unchanged.
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (!me) return;
     setError(null);
 
-    const amount = Number(amountFils);
-    if (!Number.isInteger(amount) || amount <= 0) {
-      setError("Amount must be a positive whole number of fils.");
+    const parsed = parseBhdInput(amountBhd);
+    if (!parsed.ok) {
+      setError(parsed.message);
       return;
     }
+    const amount = parsed.fils;
     const expiresAtIso = localDateTimeToIso(expiresAt);
     if (!expiresAtIso) {
       setError("Expiry must be a valid date and time.");
@@ -72,21 +78,26 @@ export function PaymentLinkCreatePage() {
     <section>
       <h1>New payment link</h1>
 
-      {error ? <p className="dash-error">{error}</p> : null}
+      <div role="alert" aria-live="assertive" className="dash-live">
+        {error ? <p className="dash-error">{error}</p> : null}
+      </div>
 
-      <form className="dash-form" onSubmit={(e) => void handleSubmit(e)}>
+      <form className="dash-form" noValidate onSubmit={(e) => void handleSubmit(e)}>
         <label>
-          Amount in fils
+          Amount (BD)
           <input
-            type="number"
-            min={1}
-            step={1}
+            type="text"
+            inputMode="decimal"
             required
-            value={amountFils}
-            onChange={(e) => setAmountFils(e.target.value)}
+            placeholder="e.g. 40.000"
+            aria-describedby="link-amount-hint"
+            value={amountBhd}
+            onChange={(e) => setAmountBhd(e.target.value)}
           />
         </label>
-        <p className="dash-muted dash-hint">1000 fils = 1.000 BHD.</p>
+        <p id="link-amount-hint" className="dash-muted dash-hint">
+          Up to 3 decimals (1 BD = 1000 fils).
+        </p>
         <label>
           Reference (optional)
           <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} />

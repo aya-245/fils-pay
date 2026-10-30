@@ -436,6 +436,49 @@
   font-weight: 600;
 }
 
+.dash-summary {
+  margin: 1rem 0 1.25rem;
+  padding: 0.9rem 1.1rem;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-left: 4px solid #1d5fbf;
+}
+
+.dash-summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dash-summary-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.dash-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  margin: 0.75rem 0 0;
+}
+
+.dash-summary-grid dt {
+  color: #555;
+  font-size: 0.9em;
+}
+
+.dash-summary-grid dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-summary-grid dd.dash-muted {
+  font-size: 0.85rem;
+}
+
 .dash-readonly-banner {
   padding: 0.5rem 1.5rem;
   background: #fff4d6;
