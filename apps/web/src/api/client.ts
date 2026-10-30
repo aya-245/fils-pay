@@ -1,4 +1,5 @@
 import type { ApiErrorBody } from "../types.js";
+import { messageForApiError, messageForNetworkError } from "./errorMessages.js";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
 
@@ -11,10 +12,14 @@ export class ApiError extends Error {
   readonly body: ApiErrorBody;
 
   constructor(statusCode: number, body: ApiErrorBody) {
-    super(body.message ?? body.error);
+    // Refund validation failures answer `{ ok: false, code, refundableFils }`
+    // (payments/refundValidation.ts) rather than `{ error }`, so fall back to
+    // `code` — otherwise the UI had nothing to switch on and showed "undefined".
+    const code = body.error ?? (typeof body.code === "string" ? body.code : "unknown_error");
+    super(body.message ?? code);
     this.name = "ApiError";
     this.statusCode = statusCode;
-    this.code = body.error;
+    this.code = code;
     this.body = body;
   }
 }
@@ -66,11 +71,9 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
  *  `403` from a role gate) is always shown, never silently swallowed. */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.statusCode === 403) {
-      return `Not permitted (${err.code}) — ask an owner or finance user on your account.`;
-    }
-    return err.body.message ?? err.code;
+    return messageForApiError(err.statusCode, err.code, err.body);
   }
+  if (err instanceof TypeError) return messageForNetworkError();
   if (err instanceof Error) return err.message;
   return "Something went wrong.";
 }

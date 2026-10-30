@@ -141,7 +141,7 @@ export function SettlementPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
+          <p className="admin-readonly">
             Your role cannot trigger settlement runs. Ask a finance admin.
           </p>
         }
@@ -219,7 +219,7 @@ export function SettlementPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">Your role cannot rebuild balances. Ask a finance admin.</p>
+          <p className="admin-readonly">Your role cannot rebuild balances. Ask a finance admin.</p>
         }
       >
         {confirmingRebuild ? (
@@ -289,7 +289,7 @@ export function SettlementPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">Your role cannot rebuild analytics. Ask a finance admin.</p>
+          <p className="admin-readonly">Your role cannot rebuild analytics. Ask a finance admin.</p>
         }
       >
         {confirmingAnalytics ? (
@@ -340,7 +340,7 @@ export function SettlementPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
+          <p className="admin-readonly">
             Your role cannot run an MDR recalculation. Ask a finance admin.
           </p>
         }

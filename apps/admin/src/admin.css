@@ -226,3 +226,42 @@ button:disabled {
   margin-top: 0.4rem;
   font-weight: 700;
 }
+
+/* --- UX pass (docs/UI_UX.md) ------------------------------------------ */
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #1d5fbf;
+  outline-offset: 2px;
+}
+
+/* Live regions stay mounted so changes are announced, but take no space empty. */
+.admin-live:empty {
+  display: none;
+}
+
+.admin-hint {
+  margin: -0.4rem 0 0;
+  font-size: 0.85em;
+}
+
+/* "Your role can't do this" — visible, not greyed-out small print. */
+.admin-readonly {
+  padding: 0.55rem 0.8rem;
+  border: 1px solid #8a5a00;
+  border-left-width: 4px;
+  background: #fff8e6;
+  color: #4d3300;
+  max-width: 44rem;
+}
+
+.admin-disabled {
+  color: #888;
+}
+
+.admin-confirm .admin-dl {
+  margin: 0.5rem 0;
+}

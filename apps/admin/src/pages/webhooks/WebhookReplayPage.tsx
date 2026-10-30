@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { getMerchant, listMerchants } from "../../api/merchants.js";
 import { replayBatch } from "../../api/webhooks.js";
 import { describeError } from "../../api/client.js";
+import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import type {
   AdminMerchantDetail,
   AdminMerchantSummary,
@@ -40,6 +41,10 @@ function defaultRange(): { from: string; to: string } {
 export function WebhookReplayPage() {
   const { merchantId } = useParams<{ merchantId?: string }>();
   const navigate = useNavigate();
+  const { admin } = useAdminAuth();
+  // Mirrors the server rule in routes/adminMerchants.ts: only finance /
+  // super_admin may include `succeeded`. UX only — the API enforces it.
+  const canReplaySucceeded = !admin || admin.role === "finance" || admin.role === "super_admin";
 
   const [search, setSearch] = useState("");
   const [candidates, setCandidates] = useState<AdminMerchantSummary[]>([]);
@@ -65,7 +70,7 @@ export function WebhookReplayPage() {
       const firstActive = (loaded.webhookEndpoints ?? []).find((e) => e.status === "active");
       setEndpointId(firstActive?.id ?? "");
     } catch (err) {
-      setError(describeError(err));
+      setError(describeError(err, admin?.role));
     }
   }, [merchantId]);
 
@@ -80,7 +85,7 @@ export function WebhookReplayPage() {
       const found = await listMerchants({ q: search.trim() || undefined, limit: 10 });
       setCandidates(found.merchants ?? []);
     } catch (err) {
-      setError(describeError(err));
+      setError(describeError(err, admin?.role));
     }
   }
 
@@ -106,7 +111,7 @@ export function WebhookReplayPage() {
         }),
       );
     } catch (err) {
-      setError(describeError(err));
+      setError(describeError(err, admin?.role));
     } finally {
       setBusy(false);
     }
@@ -117,7 +122,11 @@ export function WebhookReplayPage() {
       <section>
         <h1>Webhook replay</h1>
         <p className="admin-muted">Pick the merchant whose endpoint needs a replay.</p>
-        {error ? <p className="admin-error">{error}</p> : null}
+        {error ? (
+        <p className="admin-error" role="alert">
+          {error}
+        </p>
+      ) : null}
         <form className="admin-form admin-form-inline" onSubmit={(e) => void handleSearch(e)}>
           <label>
             Search merchants
@@ -161,7 +170,11 @@ export function WebhookReplayPage() {
         )}
       </p>
 
-      {error ? <p className="admin-error">{error}</p> : null}
+      {error ? (
+        <p className="admin-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       {detail && endpoints.length === 0 ? (
         <p className="admin-muted">This merchant has no webhook endpoints registered.</p>
@@ -201,20 +214,39 @@ export function WebhookReplayPage() {
         </label>
         <fieldset className="admin-filters">
           <legend>Delivery statuses to replay</legend>
-          {REPLAYABLE_STATUSES.map((status) => (
-            <label key={status}>
-              <input
-                type="checkbox"
-                checked={statuses.includes(status)}
-                onChange={() => toggleStatus(status)}
-              />
-              {status}
-            </label>
-          ))}
+          {REPLAYABLE_STATUSES.map((status) => {
+            const locked = status === "succeeded" && !canReplaySucceeded;
+            return (
+              <label key={status} className={locked ? "admin-disabled" : undefined}>
+                <input
+                  type="checkbox"
+                  checked={statuses.includes(status)}
+                  disabled={locked}
+                  aria-describedby={status === "succeeded" ? "replay-succeeded-note" : undefined}
+                  onChange={() => toggleStatus(status)}
+                />
+                {status}
+              </label>
+            );
+          })}
           <p className="admin-muted">
             Defaults to <code>exhausted</code> — the one terminal failure state the dispatcher
-            produces. Replaying a <code>succeeded</code> delivery is allowed but resends an event the
-            receiver already accepted.
+            produces.
+          </p>
+          <p id="replay-succeeded-note" className={canReplaySucceeded ? "admin-muted" : "admin-readonly"}>
+            {canReplaySucceeded ? (
+              <>
+                Replaying <code>succeeded</code> deliveries resends events the receiver already
+                accepted (e.g. <code>settlement.paid</code>, <code>refund.succeeded</code>) — use it
+                only when the merchant asks.
+              </>
+            ) : (
+              <>
+                <strong>succeeded is locked for your role ({admin?.role.replace(/_/g, " ")}).</strong>{" "}
+                Re-sending already-delivered events needs a finance or super admin; the server
+                refuses it with 403.
+              </>
+            )}
           </p>
         </fieldset>
         <button type="submit" disabled={busy || !endpointId}>

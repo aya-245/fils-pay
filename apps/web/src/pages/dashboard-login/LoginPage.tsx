@@ -124,8 +124,12 @@ export function LoginPage() {
       <h1>FilsPay dashboard</h1>
       <p className="dash-muted">Merchant sign-in.</p>
 
-      {error ? <p className="dash-error">{error}</p> : null}
-      {notice ? <p className="dash-notice">{notice}</p> : null}
+      <div role="alert" aria-live="assertive" className="dash-live">
+        {error ? <p className="dash-error">{error}</p> : null}
+      </div>
+      <div role="status" aria-live="polite" className="dash-live">
+        {notice ? <p className="dash-notice">{notice}</p> : null}
+      </div>
 
       {step.kind === "credentials" ? (
         <form onSubmit={(e) => void handleCredentials(e)} className="dash-form">

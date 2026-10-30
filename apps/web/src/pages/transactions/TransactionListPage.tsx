@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { listTransactions } from "../../api/transactions.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
-import { bhd, dash, dateTime, dayStartIso } from "../../format.js";
+import { bhd, dash, dateTime, dayStartIso, humanize } from "../../format.js";
+import { refundState } from "./refundable.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
 
@@ -94,7 +95,7 @@ export function TransactionListPage() {
               checked={statuses.includes(status)}
               onChange={() => toggleStatus(status)}
             />
-            {status}
+            {humanize(status)}
           </label>
         ))}
       </fieldset>
@@ -124,47 +125,75 @@ export function TransactionListPage() {
         </label>
       </fieldset>
 
-      {error ? <p className="dash-error">{error}</p> : null}
+      <div role="alert" aria-live="assertive" className="dash-live">
+        {error ? (
+          <p className="dash-error">
+            {error}{" "}
+            <button type="button" className="dash-button" onClick={() => void load(null)}>
+              Try again
+            </button>
+          </p>
+        ) : null}
+      </div>
 
-      <p>{pluralize(transactions.length, "transaction")} loaded</p>
+      <p role="status" aria-live="polite" className="dash-muted">
+        {loading ? "Loading transactions…" : `${pluralize(transactions.length, "transaction")} shown`}
+      </p>
 
-      <table className="dash-table">
+      <table className="dash-table" aria-busy={loading}>
         <thead>
           <tr>
-            <th>Occurred</th>
-            <th>Reference</th>
-            <th>Status</th>
-            <th>Authorized</th>
-            <th>Captured</th>
-            <th>Acquirer reference</th>
+            <th scope="col">Occurred</th>
+            <th scope="col">Reference</th>
+            <th scope="col">Status</th>
+            <th scope="col" className="dash-num">Authorized</th>
+            <th scope="col" className="dash-num">Captured</th>
+            <th scope="col" className="dash-num">Refunded</th>
+            <th scope="col">Acquirer reference</th>
           </tr>
         </thead>
         <tbody>
-          {transactions.map((txn) => (
-            <tr key={txn.id}>
-              <td>
-                <Link to={`/dashboard/transactions/${txn.id}`}>{dateTime(txn.occurredAt)}</Link>
-              </td>
-              <td>{dash(txn.reference)}</td>
-              <td>
-                <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{txn.status}</span>
-              </td>
-              <td>{bhd(txn.amountFils)}</td>
-              <td>{bhd(txn.capturedFils)}</td>
-              <td>
-                <code>{truncateMiddle(txn.acquirerReference, 20)}</code>
-              </td>
-            </tr>
-          ))}
-          {transactions.length === 0 && !loading ? (
+          {transactions.map((txn) => {
+            const refunds = refundState(txn);
+            return (
+              <tr key={txn.id}>
+                <td>
+                  <Link to={`/dashboard/transactions/${txn.id}`}>{dateTime(txn.occurredAt)}</Link>
+                </td>
+                <td>{dash(txn.reference)}</td>
+                <td>
+                  <span className={classNames("dash-status", `dash-status-${txn.status}`)}>
+                    {humanize(txn.status)}
+                  </span>
+                </td>
+                <td className="dash-num">{bhd(txn.amountFils)}</td>
+                <td className="dash-num">{bhd(txn.capturedFils)}</td>
+                <td className="dash-num">
+                  {refunds === "none" ? (
+                    <span className="dash-muted" aria-label="Nothing refunded">—</span>
+                  ) : (
+                    <span className="dash-amount-negative">
+                      {bhd(txn.refundedFils)}
+                      {refunds === "full" ? <span className="dash-refund-chip">full</span> : null}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <code>{truncateMiddle(txn.acquirerReference, 20)}</code>
+                </td>
+              </tr>
+            );
+          })}
+          {transactions.length === 0 && !loading && !error ? (
             <tr>
-              <td colSpan={6}>No transactions match these filters.</td>
+              <td colSpan={7} className="dash-empty">
+                No transactions match these filters.
+                {statuses.length > 0 || from || to || search ? " Clear a filter to see more." : ""}
+              </td>
             </tr>
           ) : null}
         </tbody>
       </table>
-
-      {loading ? <p>Loading...</p> : null}
 
       <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
     </section>

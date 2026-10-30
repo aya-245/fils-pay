@@ -308,3 +308,136 @@
   min-width: 1px;
   background: #4a7ebb;
 }
+
+/* --- UX pass (docs/UI_UX.md) ------------------------------------------ */
+
+/* Visible keyboard focus on every dashboard control. */
+.dash-shell a:focus-visible,
+.dash-shell button:focus-visible,
+.dash-shell input:focus-visible,
+.dash-shell select:focus-visible,
+.dash-shell textarea:focus-visible,
+.dash-centered a:focus-visible,
+.dash-centered button:focus-visible,
+.dash-centered input:focus-visible {
+  outline: 3px solid #1d5fbf;
+  outline-offset: 2px;
+}
+
+.dash-skip-link {
+  position: absolute;
+  left: -999px;
+  top: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  background: #fff;
+  border: 2px solid #1d5fbf;
+  z-index: 10;
+}
+
+.dash-skip-link:focus {
+  left: 0.5rem;
+}
+
+.dash-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Live regions stay mounted (so changes are announced) but take no space when empty. */
+.dash-live:empty {
+  display: none;
+}
+
+/* Money columns: right-aligned, tabular digits, so 3-decimal BD amounts line up. */
+.dash-num,
+.dash-table .dash-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dash-dl dd.dash-num {
+  text-align: left;
+}
+
+.dash-amount-negative {
+  color: #7a0016;
+}
+
+.dash-refund-chip {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border: 1px solid #34495e;
+  border-radius: 3px;
+  font-size: 0.75em;
+  color: #34495e;
+  vertical-align: middle;
+}
+
+.dash-row-refund td {
+  background: #fdf5f5;
+}
+
+.dash-empty {
+  padding: 1.5rem 0.6rem;
+  text-align: center;
+  color: #555;
+}
+
+.dash-status-partially_refunded {
+  color: #34495e;
+}
+
+.dash-status-expired {
+  color: #6b6b6b;
+}
+
+.dash-button-primary {
+  background: #1d5fbf;
+  border-color: #1d5fbf;
+  color: #fff;
+  font-weight: 600;
+}
+
+.dash-drawer {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem 1.25rem;
+  max-width: 40rem;
+  border: 1px solid #c9c9c9;
+  border-left: 4px solid #1d5fbf;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.dash-drawer h2 {
+  margin-top: 0;
+}
+
+.dash-drawer textarea {
+  padding: 0.4rem;
+  font: inherit;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+}
+
+.dash-form input[aria-invalid="true"] {
+  border-color: #b00020;
+  box-shadow: 0 0 0 1px #b00020;
+}
+
+.dash-field-error {
+  margin: -0.25rem 0 0;
+  color: #7a0016;
+  font-weight: 600;
+}
+
+.dash-readonly-banner {
+  padding: 0.5rem 1.5rem;
+  background: #fff4d6;
+  border-bottom: 2px solid #b06000;
+}

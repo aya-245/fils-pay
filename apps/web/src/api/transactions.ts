@@ -1,6 +1,7 @@
 import { request } from "./client.js";
 import { buildQuery } from "./query.js";
 import type {
+  RefundResponse,
   CaptureResponse,
   TransactionDto,
   TransactionEventDto,
@@ -63,4 +64,22 @@ export function captureTransaction(
 /** Only valid while the transaction is still authorized. */
 export function voidTransaction(id: string): Promise<VoidResponse> {
   return request(`/v1/transactions/${encodeURIComponent(id)}/void`, { method: "POST" });
+}
+
+/** `POST /v1/merchants/:merchantId/refunds` (FP-300) — the dashboard form of
+ *  `POST /v1/refunds`; the server checks the path against the session.
+ *  Omitting `amountFils` refunds everything still refundable. The caller owns
+ *  the Idempotency-Key: reuse it to retry the *same* request after a network
+ *  failure (the server replays the stored answer and never refunds twice),
+ *  and mint a new one for a different request. */
+export function refundTransaction(
+  merchantId: string,
+  input: { transactionId: string; amountFils?: number; reason?: string },
+  idempotencyKey: string,
+): Promise<RefundResponse> {
+  return request(`/v1/merchants/${encodeURIComponent(merchantId)}/refunds`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(input),
+  });
 }

@@ -316,3 +316,19 @@ export interface TopLinksResponse {
   readModelAsOf: string;
   live: boolean;
 }
+
+// --- refunds (FP-300) ---
+/** processRefund()'s 200 body, transcribed field-for-field. */
+export interface RefundResponse {
+  id: string;
+  transactionId: string;
+  merchantId: string;
+  amountFils: number;
+  feeReversedFils: number;
+  status: "succeeded";
+  transactionStatus: TransactionStatus;
+  refundedTotalFils: number;
+  reason: string;
+  acquirerReference: string;
+  occurredAt: string;
+}

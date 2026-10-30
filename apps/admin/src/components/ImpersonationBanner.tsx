@@ -38,15 +38,19 @@ export function ImpersonationBanner() {
   const label = impersonation.merchantDisplayName ?? impersonation.merchantId;
 
   return (
-    <div className="impersonation-banner" role="alert">
+    <div className="impersonation-banner" role="region" aria-label="Impersonation in progress">
       <div>
-        <strong>You are viewing as a merchant.</strong>{" "}
+        <strong>You are viewing as a merchant — read-only.</strong>{" "}
         <span>
           Active grant for <code>{label}</code>, expiring{" "}
-          {new Date(impersonation.expiresAt).toLocaleString()}. Merchant screens in the dashboard are
-          acting with this merchant&apos;s least-privileged (support) role.
+          {new Date(impersonation.expiresAt).toLocaleString()}. Merchant screens in the dashboard act
+          with this merchant&apos;s least-privileged (support) role, and every write — refunds,
+          captures, payment-link or webhook changes — is refused with <code>403</code>{" "}
+          (<code>impersonation_read_only</code>). Every view is audited.
         </span>
-        {error ? <div className="impersonation-banner-error">Could not end it: {error}</div> : null}
+        <div role="alert" aria-live="assertive">
+          {error ? <div className="impersonation-banner-error">Could not end it: {error}</div> : null}
+        </div>
       </div>
       <button type="button" onClick={() => void handleExit()} disabled={exiting}>
         {exiting ? "Exiting..." : "Exit impersonation"}

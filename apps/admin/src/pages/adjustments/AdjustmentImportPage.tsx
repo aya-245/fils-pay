@@ -107,7 +107,7 @@ export function AdjustmentImportPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
+          <p className="admin-readonly">
             Your role is read-only here. The import history below is still available.
           </p>
         }

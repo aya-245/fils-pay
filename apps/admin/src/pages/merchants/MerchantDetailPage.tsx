@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
+import { parseBhdToFils } from "@filspay/money";
 import { getMerchant, recomputeTransactionStatuses, submitKycReview } from "../../api/merchants.js";
 import { adjustBalance } from "../../api/balanceAdjustments.js";
 import { issueCredit } from "../../api/credits.js";
@@ -9,11 +9,13 @@ import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
-
-function bhd(fils: number): string {
-  return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
-}
+import { bhd, parseSignedBhdInput, signedBhd } from "../../format.js";
+import type {
+  AdminMerchantDetail,
+  BalanceAdjustmentResult,
+  CreditReasonCode,
+  RotatedApiKey,
+} from "../../types.js";
 
 // browser local date not bahrain, fine for bahrain staff — am
 function todayIso(): string {
@@ -25,7 +27,7 @@ function todayIso(): string {
 
 export function MerchantDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { rememberImpersonation } = useAdminAuth();
+  const { rememberImpersonation, admin } = useAdminAuth();
 
   const [detail, setDetail] = useState<AdminMerchantDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -49,8 +51,12 @@ export function MerchantDetailPage() {
   const [creditReverseFee, setCreditReverseFee] = useState(false);
   const [creditEffectiveDate, setCreditEffectiveDate] = useState(todayIso());
 
-  const [adjustDeltaFils, setAdjustDeltaFils] = useState("");
+  const [adjustAmountBhd, setAdjustAmountBhd] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
+  /** Set once the operator has reviewed the figures and not yet confirmed. */
+  const [pendingAdjust, setPendingAdjust] = useState<{ deltaFils: number; reason: string } | null>(null);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [adjustResult, setAdjustResult] = useState<BalanceAdjustmentResult | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -111,30 +117,39 @@ export function MerchantDetailPage() {
     }
   }
 
-  // FH: this ends up in adjustMerchantBalanceCache (cache only)
-  // MK: it's the journaled one since Sep
-  async function handleAdjustBalance(): Promise<void> {
-    if (!id) return;
-    const deltaFils = Number(adjustDeltaFils.trim());
-    if (!Number.isInteger(deltaFils) || deltaFils === 0) {
-      setActionError("Enter a non-zero whole number of fils.");
+  /** Step 1: validate the BD figure and show a review panel. Nothing is sent. */
+  function handleReviewAdjustment(event: React.FormEvent): void {
+    event.preventDefault();
+    setAdjustError(null);
+    setAdjustResult(null);
+    const parsed = parseSignedBhdInput(adjustAmountBhd);
+    if (!parsed.ok) {
+      setAdjustError(parsed.message);
       return;
     }
+    if (!adjustReason.trim()) {
+      setAdjustError("Enter a reason — it is written to the ledger journal and the admin audit log.");
+      return;
+    }
+    setPendingAdjust({ deltaFils: parsed.fils, reason: adjustReason.trim() });
+  }
+
+  /** Step 2: post it. The API journals the delta to the ledger (balanced
+   *  legs) and moves the cached balance in the same transaction (FP-203), so
+   *  a later "Rebuild balances" keeps the correction instead of erasing it. */
+  async function handleConfirmAdjustment(): Promise<void> {
+    if (!id || !pendingAdjust) return;
     setBusy(true);
-    setActionError(null);
-    setNotice(null);
+    setAdjustError(null);
     try {
-      const result = await adjustBalance(id, { deltaFils, reason: adjustReason.trim() });
-      setNotice(
-        `Balance adjusted by ${bhd(result.deltaFils)}: ${bhd(
-          result.cachedPayableFilsBefore,
-        )} → ${bhd(result.cachedPayableFilsAfter)}.`,
-      );
-      setAdjustDeltaFils("");
+      const result = await adjustBalance(id, pendingAdjust);
+      setAdjustResult(result);
+      setPendingAdjust(null);
+      setAdjustAmountBhd("");
       setAdjustReason("");
       await load();
     } catch (err) {
-      setActionError(describeError(err));
+      setAdjustError(describeError(err, admin?.role));
     } finally {
       setBusy(false);
     }
@@ -249,8 +264,12 @@ export function MerchantDetailPage() {
         <code>{merchant.id}</code>
       </p>
 
-      {actionError ? <p className="admin-error">{actionError}</p> : null}
-      {notice ? <p className="admin-notice">{notice}</p> : null}
+      <div role="alert" aria-live="assertive" className="admin-live">
+        {actionError ? <p className="admin-error">{actionError}</p> : null}
+      </div>
+      <div role="status" aria-live="polite" className="admin-live">
+        {notice ? <p className="admin-notice">{notice}</p> : null}
+      </div>
 
       <h2>Profile</h2>
       <dl className="admin-dl">
@@ -308,48 +327,103 @@ export function MerchantDetailPage() {
         <p className="admin-muted">No cached balance row yet.</p>
       )}
 
-      <h2>Adjust balance</h2>
+      <h2 id="adjust-balance">Adjust balance</h2>
       <p className="admin-muted">
-        A direct correction to this merchant&apos;s cached payable balance, for when support has
-        confirmed the figure on screen is wrong and it needs to be right now rather than after the
-        next settlement cycle. Requires the <code>finance</code> or <code>super_admin</code> role.
+        A correction to this merchant&apos;s payable balance, for when support has confirmed the
+        figure on screen is wrong. It is <strong>journaled to the ledger</strong> (balanced
+        adjustment legs) and recorded in the admin audit log, so a later balance rebuild keeps it.
+        Requires the <code>finance</code> or <code>super_admin</code> role.
       </p>
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
-            Your role is read-only for balance corrections. Ask a finance admin.
+          <p className="admin-readonly" role="note">
+            <strong>Read-only for your role ({admin?.role.replace(/_/g, " ")}).</strong> Balance
+            corrections need a finance or super admin — the server refuses them with 403 for other
+            roles.
           </p>
         }
       >
-        <div className="admin-form">
-          <label>
-            Delta (fils, may be negative)
-            <input
-              value={adjustDeltaFils}
-              onChange={(e) => setAdjustDeltaFils(e.target.value)}
-              inputMode="numeric"
-              placeholder="50000"
-            />
-          </label>
-          <label>
-            Reason
-            <input
-              value={adjustReason}
-              onChange={(e) => setAdjustReason(e.target.value)}
-              placeholder="phone confirmation with merchant"
-            />
-          </label>
-          <div>
-            <button
-              type="button"
-              disabled={busy || !adjustDeltaFils.trim() || !adjustReason.trim()}
-              onClick={() => void handleAdjustBalance()}
-            >
-              Adjust balance
+        <div role="alert" aria-live="assertive" className="admin-live">
+          {adjustError ? <p className="admin-error">{adjustError}</p> : null}
+        </div>
+        <div role="status" aria-live="polite" className="admin-live">
+          {adjustResult ? (
+            <div className="admin-notice">
+              <p>
+                <strong>Adjustment journaled to the ledger: {signedBhd(adjustResult.deltaFils)}.</strong>
+              </p>
+              <p>
+                Cached payable {bhd(adjustResult.cachedPayableFilsBefore)} →{" "}
+                <strong>{bhd(adjustResult.cachedPayableFilsAfter)}</strong>. The entry is in the
+                ledger and the admin audit log.
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {pendingAdjust ? (
+          <div className="admin-confirm" role="group" aria-labelledby="adjust-confirm-title">
+            <p id="adjust-confirm-title">
+              <strong>
+                Post a {signedBhd(pendingAdjust.deltaFils)} adjustment to {merchant.displayName}?
+              </strong>
+            </p>
+            <dl className="admin-dl">
+              <dt>Current cached payable</dt>
+              <dd>{detail.balance ? bhd(detail.balance.cachedPayableFils) : "no balance row"}</dd>
+              {detail.balance ? (
+                <>
+                  <dt>After adjustment</dt>
+                  <dd>
+                    <strong>{bhd(detail.balance.cachedPayableFils + pendingAdjust.deltaFils)}</strong>
+                  </dd>
+                </>
+              ) : null}
+              <dt>Reason</dt>
+              <dd>{pendingAdjust.reason}</dd>
+            </dl>
+            <p className="admin-muted">
+              This writes balanced ledger legs and cannot be deleted — a mistake is fixed with an
+              opposite adjustment.
+            </p>
+            <button type="button" disabled={busy} onClick={() => void handleConfirmAdjustment()}>
+              {busy ? "Posting..." : "Post adjustment to ledger"}
+            </button>{" "}
+            <button type="button" disabled={busy} onClick={() => setPendingAdjust(null)}>
+              Back
             </button>
           </div>
-        </div>
+        ) : (
+          <form className="admin-form" noValidate onSubmit={handleReviewAdjustment}>
+            <label>
+              Adjustment (BD, up to 3 decimals; negative to reduce)
+              <input
+                value={adjustAmountBhd}
+                onChange={(e) => setAdjustAmountBhd(e.target.value)}
+                inputMode="decimal"
+                placeholder="-2.500"
+                aria-describedby="adjust-hint"
+              />
+            </label>
+            <p id="adjust-hint" className="admin-muted admin-hint">
+              1 BD = 1000 fils. Example: <code>-2.500</code> removes 2.500 BHD from the payable balance.
+            </p>
+            <label>
+              Reason
+              <input
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                placeholder="e.g. duplicate fee charged on 2026-10-28 (ticket SUP-481)"
+              />
+            </label>
+            <div>
+              <button type="submit" disabled={busy}>
+                Review adjustment
+              </button>
+            </div>
+          </form>
+        )}
       </RequireRole>
 
       <h2>Issue credit</h2>
@@ -362,7 +436,7 @@ export function MerchantDetailPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
+          <p className="admin-readonly">
             Your role cannot issue credits. Ask a finance admin.
           </p>
         }
@@ -424,7 +498,7 @@ export function MerchantDetailPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
+          <p className="admin-readonly">
             Your role is read-only for KYC decisions. Ask a finance admin to review.
           </p>
         }
@@ -631,7 +705,7 @@ export function MerchantDetailPage() {
       <RequireRole
         allow={["finance", "super_admin"]}
         fallback={
-          <p className="admin-muted">
+          <p className="admin-readonly">
             Your role cannot run this backfill. Ask a finance admin.
           </p>
         }
@@ -645,7 +719,8 @@ export function MerchantDetailPage() {
       <p className="admin-muted">
         Starts a short-lived, audited impersonation grant. It always acts with this merchant&apos;s
         least-privileged <code>support</code> role — never with your admin role — and it expires on
-        its own. A banner stays on screen until you exit it.
+        its own. It is <strong>read-only</strong>: refunds, captures and every other write are
+        refused with 403 while impersonating. A banner stays on screen until you exit it.
       </p>
       <button type="button" disabled={busy} onClick={() => void handleImpersonate()}>
         View as merchant

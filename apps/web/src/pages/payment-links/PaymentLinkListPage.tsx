@@ -5,7 +5,8 @@ import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { Pagination } from "../../components/Pagination.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, humanize } from "../../format.js";
+import { displayLinkStatus } from "./linkStatus.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 
 /** The four *stored* statuses, including `reserved` — the merchant-facing
@@ -111,7 +112,7 @@ export function PaymentLinkListPage() {
               <td>{dash(link.description)}</td>
               <td>{bhd(link.amountFils)}</td>
               <td>
-                <span className={`dash-status dash-status-${link.status}`}>{link.status}</span>
+                <span className={`dash-status dash-status-${displayLinkStatus(link)}`}>{humanize(displayLinkStatus(link))}</span>
               </td>
               <td>{dateTime(link.expiresAt)}</td>
               <td>{dateTime(link.paidAt)}</td>

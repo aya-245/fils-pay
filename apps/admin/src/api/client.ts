@@ -1,4 +1,5 @@
 import type { ApiErrorBody } from "../types.js";
+import { messageForAdminError } from "./errorMessages.js";
 
 const API_BASE_URL =
   (import.meta.env.VITE_ADMIN_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
@@ -63,13 +64,11 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
 /** Human-readable text for anything thrown by `request` — used by every
  *  page's error banner so a failure (including a server-side `403` from a
  *  role gate) is always *shown*, never silently swallowed. */
-export function describeError(err: unknown): string {
+export function describeError(err: unknown, role?: string | null): string {
   if (err instanceof ApiError) {
-    if (err.statusCode === 403) {
-      return `Not permitted (${err.code}) — your admin role does not allow this action.`;
-    }
-    return err.body.message ?? err.code;
+    return messageForAdminError(err.statusCode, err.code, err.body, role);
   }
+  if (err instanceof TypeError) return "Couldn't reach the FilsPay API. Check your connection and try again.";
   if (err instanceof Error) return err.message;
   return "Something went wrong.";
 }
