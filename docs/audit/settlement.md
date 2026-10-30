@@ -58,3 +58,15 @@
 - **Severity:** High
 - **Where:** settlement already filters `test_mode = false` (`batch.go:123,490`). Root cause was upstream: `apps/api/src/admin/merchantFlags.ts` `reconcileSandboxFlag` flipped every test merchant to live, after which settlement correctly (but wrongly for the business) included them.
 - **Fix:** see money/fees wave (`docs/audit/money-fees.md`): the admin tool no longer touches `test_mode`. No Go change needed.
+
+## SET-8 — Lifetime payout estimate drifts for high-volume merchants
+- **Severity:** Medium (ops dashboard figure; money stored as float)
+- **Where:** `apps/settlement/internal/settlement/payout_estimate.go`, column `merchants.lifetime_net_payout_monitoring_estimate` (migration 0040, `REAL`)
+- **What's wrong:** the running total was a float4 (`REAL`) incremented with `float32(net)`. float32 has a 24-bit mantissa: above 16,777,216 fils (~16,777 BD) increments are rounded, so the estimate drifts and eventually stops growing. `EstimateMonthlyPayout` summed in float32 too.
+- **Why:** float used for money "because it's only monitoring"; the existing test only used small values.
+- **Fix:** migration `0082_lifetime_payout_estimate_bigint.sql` (REAL → BIGINT), integer increments, monthly estimate summed in SQL as BIGINT and returned as `money.Fils`.
+- **Test:** `payout_estimate_bigint_test.go` (40 × 999,999 fils exact).
+
+## Checked, no change
+- `internalapi/server.go` bearer token already uses `crypto/subtle.ConstantTimeCompare`.
+- Settlement merchant selection already excludes `test_mode` (see SET-7).
