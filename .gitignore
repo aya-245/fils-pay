@@ -6,3 +6,8 @@ dist/
 npm-debug.log*
 .DS_Store
 .claude/
+
+# secrets: real env files and the keys/ drop folder never go in git
+.env.*
+!.env.example
+keys/

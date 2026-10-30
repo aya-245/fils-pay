@@ -8,3 +8,4 @@ instructions/
 .env.*
 ops/.env.docker
 **/data/kyc
+keys/
