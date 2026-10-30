@@ -69,7 +69,7 @@ test("builds a header plus one line per matching transaction", async () => {
   const csv = await buildTransactionsExportCsv(pool, { merchantId });
   const lines = csv.split("\n");
 
-  assert.equal(lines[0], "id,status,amount_bhd,captured_bhd,reference,occurred_at");
+  assert.equal(lines[0], "id,status,amount_bhd,captured_bhd,reference,occurred_at,refunded_bhd");
   assert.equal(lines.length, 3);
 
   // Rows come back in ascending occurred_at order, so the first data line is
@@ -81,6 +81,7 @@ test("builds a header plus one line per matching transaction", async () => {
     "12.500",
     "order-1",
     "2026-04-01T10:00:00.000Z",
+    "0.000",
   ]);
 
   // A null reference renders as an empty field, not the string "null".

@@ -286,9 +286,10 @@ test("GET /v1/transactions/:id/events returns the timeline in chronological orde
   assert.equal(events[2]!.amountFils, 4_000);
 });
 
-// delete/replace this when FP-212 lands — am
-// MK: keep it until the route is behind the feature flag (REFUNDS_V2), then flip the assertion
-test("POST /v1/refunds returns 501 not_implemented", async () => {
+// FP-300: the 501 stub is gone. Full refund route coverage lives in
+// routes/refunds.new.test.ts; this only proves the route is live and
+// requires the client's Idempotency-Key.
+test("POST /v1/refunds is live and requires an Idempotency-Key", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("refund-stub");
   const res = await app.inject({
     method: "POST",
@@ -296,6 +297,6 @@ test("POST /v1/refunds returns 501 not_implemented", async () => {
     headers: authHeader(rawKey),
     payload: {},
   });
-  assert.equal(res.statusCode, 501, res.body);
-  assert.equal(res.json().error, "not_implemented");
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "idempotency_key_required");
 });

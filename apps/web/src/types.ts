@@ -84,14 +84,14 @@ export type TransactionStatus =
 
 /** serializeTransaction() also returns `merchantId` — kept here so the type
  *  matches the wire shape exactly rather than a convenient subset of it. */
-// FH: no refundedFils on this DTO, so the drawer can't compute what's still refundable
-// refundedFils is there, a few lines down — am
 export interface TransactionDto {
   id: string;
   merchantId: string;
   status: TransactionStatus;
   amountFils: number;
   capturedFils: number;
+  /** Cumulative refunded fils; refundable = capturedFils - refundedFils. */
+  refundedFils: number;
   currency: string;
   reference: string | null;
   acquirerReference: string;
@@ -272,6 +272,9 @@ export interface VolumePointDto {
   capturedCount: number;
   capturedGrossFils: number;
   voidedCount: number;
+  refundCount: number;
+  refundGrossFils: number;
+  netGrossFils: number;
 }
 
 /** `readModelAsOf` is nullable on the two lagged widgets: it reads

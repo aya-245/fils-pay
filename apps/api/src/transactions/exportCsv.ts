@@ -24,6 +24,8 @@ function toCsvRow(row: TransactionRow): string {
     formatBhd(toFils(Number(row.captured_fils))),
     csvEscape(row.reference ?? ""),
     row.occurred_at.toISOString(),
+    // FP-300: appended last so existing positional consumers keep working.
+    formatBhd(toFils(Number(row.refunded_fils ?? 0))),
   ].join(",");
 }
 
@@ -43,7 +45,7 @@ export async function buildTransactionsExportCsv(
     [filters.merchantId, filters.from ?? null, filters.to ?? null, statusArray],
   );
 
-  const header = "id,status,amount_bhd,captured_bhd,reference,occurred_at";
+  const header = "id,status,amount_bhd,captured_bhd,reference,occurred_at,refunded_bhd";
   const lines = result.rows.map(toCsvRow);
   return [header, ...lines].join("\n");
 }
@@ -55,7 +57,7 @@ export async function streamTransactionsExportCsv(
   filters: TransactionsExportFilters,
   write: (chunk: string) => void,
 ): Promise<void> {
-  write("id,status,amount_bhd,captured_bhd,reference,occurred_at\n");
+  write("id,status,amount_bhd,captured_bhd,reference,occurred_at,refunded_bhd\n");
 
   let cursor: Date | null = null;
   const PAGE_SIZE = 1000;
