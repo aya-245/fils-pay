@@ -80,8 +80,7 @@ async function signedInAdmin(role: AdminRole, label: string) {
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
 
-  // The token is rotated at OTP verify (FP-198): use the new cookie.
-  return { id: inserted.rows[0]!.id, email, cookie: parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName) };
+  return { id: inserted.rows[0]!.id, email, cookie };
 }
 
 async function createMerchant(label: string, mdrBps = 250): Promise<string> {

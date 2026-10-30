@@ -84,7 +84,7 @@ function rawSetCookie(setCookie: string | string[] | undefined, name: string): s
 // ------------------------------------------------------- session fixation
 
 test("FP-198: merchant OTP verify rotates the session token; the pre-OTP cookie is dead afterwards", async () => {
-  const { app, config } = makeApp();
+  const { app, config } = makeApp({ SESSION_ROTATE_ON_OTP: "true" }); // production default
   const { merchantId, email } = await merchantUser();
   const login = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password: PASSWORD } });
   assert.equal(login.statusCode, 200, login.body);
@@ -115,7 +115,7 @@ test("FP-198: merchant OTP verify rotates the session token; the pre-OTP cookie 
 });
 
 test("FP-198: admin OTP verify rotates the session token; the pre-OTP cookie is dead afterwards", async () => {
-  const { app, config } = makeApp();
+  const { app, config } = makeApp({ SESSION_ROTATE_ON_OTP: "true" }); // production default
   const email = await adminUser();
   const login = await app.inject({ method: "POST", url: "/v1/admin/auth/login", payload: { email, password: PASSWORD } });
   assert.equal(login.statusCode, 200, login.body);
@@ -259,6 +259,11 @@ test("admin login and OTP verify: per-account limits return 429", async () => {
   const limited = await app.inject({ method: "POST", url: "/v1/admin/auth/login", payload: { email, password: PASSWORD } });
   assert.equal(limited.statusCode, 429);
   assert.ok(limited.headers["retry-after"]);
+});
+
+test("session rotation is on by default outside tests and off under NODE_ENV=test", () => {
+  assert.equal(loadConfig(baseEnv).rotateSessionOnOtp, false);
+  assert.equal(loadConfig({ ...baseEnv, NODE_ENV: "development" }).rotateSessionOnOtp, true);
 });
 
 test("rate limits are off by default under NODE_ENV=test and on by default in production config", () => {

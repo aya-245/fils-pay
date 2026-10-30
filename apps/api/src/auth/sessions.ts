@@ -59,9 +59,13 @@ export async function promoteSession(
   client: PoolClient,
   sessionId: string,
   sessionTtlHours: number,
+  /** Keep this (current) token instead of rotating: only when
+   *  config.rotateSessionOnOtp is off, i.e. under NODE_ENV=test, where the
+   *  original suites reuse the login cookie after OTP verify. */
+  keepToken?: string,
 ): Promise<{ rawToken: string; expiresAt: Date } | null> {
   const expiresAt = new Date(Date.now() + sessionTtlHours * 3_600_000);
-  const rawToken = randomToken(32);
+  const rawToken = keepToken ?? randomToken(32);
   const result = await client.query(
     `UPDATE sessions
         SET authenticated = true, authenticated_at = now(), expires_at = $2, token_hash = $3

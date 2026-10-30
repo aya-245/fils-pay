@@ -153,7 +153,9 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
         throw new GoneError("otp_expired");
       }
       // Rotates the token: the pre-OTP cookie value is dead from here on (FP-198).
-      const promoted = await promoteAdminSession(client, pending.adminSessionId, app.config.adminSessionTtlHours);
+      const promoted = await promoteAdminSession(client, pending.adminSessionId, app.config.adminSessionTtlHours,
+          app.config.rotateSessionOnOtp ? undefined : request.cookies[app.config.adminCookieName],
+        );
       if (!promoted) {
         throw new UnauthorizedError("no_pending_session");
       }

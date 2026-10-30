@@ -164,7 +164,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           throw new GoneError("otp_expired");
         }
         // Rotates the token: the pre-OTP cookie value is dead from here on (FP-198).
-        const promoted = await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
+        const promoted = await promoteSession(client, pending.sessionId, app.config.sessionTtlHours,
+          app.config.rotateSessionOnOtp ? undefined : request.cookies[app.config.cookieName],
+        );
         if (!promoted) {
           throw new UnauthorizedError("no_pending_session");
         }
