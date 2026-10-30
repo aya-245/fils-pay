@@ -469,7 +469,7 @@ BUGS #73 · OPS-0, OPS-1
 - **Symptom:** During the load test's kill/restart run, restarting Postgres took the API process down instead of returning errors for the affected requests.
 - **Found / reproduced:** Restarted Postgres while checkouts were running (`ops/loadtest/`, `timeline.py`, `docs/CAPACITY.md`).
 - **Root cause:** `apps/api/src/db/pool.ts`: pg-pool removes its idle `error` listener while a client is checked out. When the backend died between queries of a checked-out client (pay.ts holds the link-lock connection across the acquirer call), `error` was emitted with no listener, which is an `uncaughtException`.
-- **Fix:** A per-client `error` listener on `connect` (the in-flight query still rejects, and the dead client is discarded on release). Transient pg errors map to 503 + `Retry-After` in `plugins/errorHandler.ts`. `statement_timeout`. `index.ts` exits on fatal errors and has a bounded graceful shutdown. Capacity change set: see `docs/CAPACITY.md` for the commit.
+- **Fix:** A per-client `error` listener on `connect` (the in-flight query still rejects, and the dead client is discarded on release). Transient pg errors map to 503 + `Retry-After` in `plugins/errorHandler.ts`. `statement_timeout`. `index.ts` exits on fatal errors and has a bounded graceful shutdown. Commit `8934b3d` (capacity change set).
 - **Verified:** `plugins/loadShedding.new.test.ts` "errorHandler maps a pg pool checkout timeout to 503 overloaded, not 500". The kill/restart recovery timeline is in `docs/CAPACITY.md`. `scripts/integrity-check.ts` ran afterwards (no lost acknowledged writes).
 - **Existing data:** None. Every money write is one DB transaction. Runtime only.
 
@@ -768,7 +768,7 @@ BUGS #69 · RV-6
 - **Symptom:** The API got slower the longer the load test ran, and Postgres ran out of CPU first on the 1 vCPU box.
 - **Found / reproduced:** `pg_stat_statements` during the load test (`docs/CAPACITY.md`).
 - **Root cause:** The `pay.ts` crash-recovery lookup `key LIKE 'paylink:<id>:%'` cannot use the `UNIQUE (merchant_id, endpoint, key)` btree under the `en_US.utf8` collation, so it read every capture key the merchant had (50 ms at about 2k keys). The 0007 deferred trigger `check_ledger_group_balance` summed `ledger_entries` by `entry_group_id` with no index (9.7 ms per row after about 25k rows). Holds and ledger lookups by `transaction_id` were not indexed either.
-- **Fix:** `db/migrations/0083_pay_hot_path_indexes.sql`: `text_pattern_ops` prefix index (about 0.1 ms) and indexes on `ledger_entries(entry_group_id)`, `ledger_entries(transaction_id)` and `holds(transaction_id)`. Indexes only (capacity change set, see `docs/CAPACITY.md` for the commit).
+- **Fix:** `db/migrations/0083_pay_hot_path_indexes.sql`: `text_pattern_ops` prefix index (about 0.1 ms) and indexes on `ledger_entries(entry_group_id)`, `ledger_entries(transaction_id)` and `holds(transaction_id)`. Indexes only (capacity change set, commit `8934b3d`).
 - **Verified:** Before/after load runs in `docs/CAPACITY.md`.
 - **Existing data:** None. Runtime only.
 
@@ -777,7 +777,7 @@ BUGS #69 · RV-6
 - **Symptom:** Past capacity, admitted requests also blew their latency budget and timed out, instead of the excess getting a fast "retry".
 - **Found / reproduced:** Overload run at 3× capacity (`ops/loadtest/run.sh over …`).
 - **Root cause:** No admission control. Work queued in the pg pool, pay.ts's slot queue and the event loop.
-- **Fix:** `apps/api/src/plugins/loadShedding.ts`: a global in-flight cap, a tighter pay-route cap with a short FIFO queue, and event-loop-delay shedding. 503 `overloaded` + `Retry-After`. Probes are exempt (capacity change set, see `docs/CAPACITY.md`).
+- **Fix:** `apps/api/src/plugins/loadShedding.ts`: a global in-flight cap, a tighter pay-route cap with a short FIFO queue, and event-loop-delay shedding. 503 `overloaded` + `Retry-After`. Probes are exempt (capacity change set, commit `8934b3d`).
 - **Verified:** `plugins/loadShedding.new.test.ts` (9 tests). Overload results in `docs/CAPACITY.md`.
 - **Existing data:** None. Runtime only.
 
