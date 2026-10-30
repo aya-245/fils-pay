@@ -55,10 +55,19 @@ export async function runConsumerPass(
 
     // FH: redundant with ORDER BY id ASC (last row is max). harmless
     let maxId = cursor.lastProcessedId;
+    let appliedRefund = false;
     for (const row of eventsResult.rows) {
       await applyEvent(client, row);
+      if (row.event_type === "refund.succeeded") appliedRefund = true;
       const rowId = BigInt(row.id);
       if (rowId > maxId) maxId = rowId;
+    }
+
+    // Same transaction: the matview change commits (or rolls back) with the
+    // rollups and watermark. refund_merchant_summary has a unique index
+    // (0072/0073), so CONCURRENTLY keeps readers unblocked.
+    if (appliedRefund) {
+      await client.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY refund_merchant_summary`);
     }
 
     if (eventsResult.rows.length > 0) {

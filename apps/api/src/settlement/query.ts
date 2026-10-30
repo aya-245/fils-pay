@@ -290,6 +290,10 @@ export async function getReconciliationReport(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0) AS net
          FROM ledger_entries
         WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+          -- Payout debits move accrued payable out to cash; they are the
+          -- settlement net being paid, not new accrual, so leaving them in
+          -- would subtract a paid batch from the ledger a second time.
+          AND description NOT LIKE 'settlement payout:%'
           AND occurred_at >= $2 AND occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
     ),

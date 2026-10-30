@@ -14,3 +14,11 @@ Format: What wrong | Why | Breaks | Fix | Test
 
 Existing tests changed: none. Baseline reporting failures (4) no longer fail after migrate (all 15 pass).
 Not done: analytics getVolumes (apps/api/src/analytics/query.ts) does not yet expose refund_count/refund_gross_fils; run `reporting rebuild` after deploy.
+
+## Follow-up: matview refresh + paid-batch reconciliation
+
+ID | Severity | file:line | What's wrong | Why | Breaks | Fix | Test
+9. R1 | Medium | apps/reporting/src/consumer/runConsumerPass.ts:58-71, cli/rebuild.ts:67 | refund_merchant_summary never refreshed outside tests | 0072 comment assumed the worker refreshes it; nothing did | Refund dashboard stays empty/stale | REFRESH ... CONCURRENTLY inside the pass transaction when a refund.succeeded was applied (unique index already exists from 0072/0073, so no 0075 migration); plain REFRESH at end of `reporting rebuild`. Failure rolls back rollups, cursor and refresh together | apps/reporting/src/consumer/refundMatview.new.test.ts
+10. R2 | High | apps/api/src/settlement/query.ts:296 | getReconciliationReport: paid batch gave gapFils = -netPayout, explained false | Ledger net included the payout debit ('settlement payout: batch paid') while settlement net (closed+paid) was also subtracted: payout counted twice | Every paid batch (with or without refunds) looked unreconciled when the payout posted inside the window | Identity: accrued payable net = settled net + pending; payout legs are movement to cash, so exclude description 'settlement payout:%' from the ledger sum | apps/api/src/settlement/query.paid.new.test.ts (4 cases)
+
+Existing tests changed: none (routes/settlement.test.ts dodged the bug by posting the payout outside the window).

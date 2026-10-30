@@ -62,6 +62,10 @@ export async function runRebuild(pool: Pool, config: ReportingConfig): Promise<v
     if (processedCount === 0) break;
   }
 
+  // The matview is derived from refunds, not the outbox; refresh it even when
+  // the replay applied no refund event so a rebuild always leaves it current.
+  await pool.query(`REFRESH MATERIALIZED VIEW refund_merchant_summary`);
+
   // TODO: diff against apps/api admin/reportingRebuild.ts output (YA 2026-02)
   const after = await getRollupCounts(pool);
   console.log(
