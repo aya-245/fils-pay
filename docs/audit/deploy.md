@@ -1,4 +1,4 @@
-DEPLOY DONE: http://168.144.92.39:3000 (API) · http://168.144.92.39:8080 (web) · http://168.144.92.39:8081 (admin)
+DEPLOY DONE (HTTPS): https://168-144-92-39.sslip.io (checkout + dashboard) · https://admin.168-144-92-39.sslip.io (admin) · https://api.168-144-92-39.sslip.io (API)
 
 # Deploy — Dilmune Cloud
 
@@ -7,12 +7,20 @@ return 200 from outside, and all 6 containers are up. Settlement daemon processe
 The seed prints the seeded merchants' API keys to stdout. They are demo keys on a public server, so treat them as
 disposable.
 
-## Live URLs
+## Live URLs (current)
 | Service | URL |
 |---|---|
-| API | http://168.144.92.39:3000 (health: `/healthz`) |
-| Merchant web / checkout | http://168.144.92.39:8080 |
-| Admin | http://168.144.92.39:8081 |
+| Checkout + merchant dashboard | https://168-144-92-39.sslip.io (`/pay/<token>`, `/dashboard`) |
+| Admin console | https://admin.168-144-92-39.sslip.io |
+| Public API | https://api.168-144-92-39.sslip.io (health: `/healthz`; also `https://168-144-92-39.sslip.io/api/healthz`) |
+
+TLS: Caddy with Let's Encrypt (issuer YE2, valid to 2027-01-28) via `ops/docker-compose.tls.yml` and `ops/Caddyfile`.
+Since the second redeploy, the direct ports 3000, 8080 and 8081 are bound to `127.0.0.1` on the server
+(`API_HOST_PORT`, `WEB_HOST_PORT` and `ADMIN_HOST_PORT` in `.env.prod`). They are not reachable from the
+internet, and Caddy on 443 is the only public entry point. Postgres and the settlement internal API were never
+published. Each redeploy writes the deployed commit to `~/filspay/DEPLOYED_COMMIT` on the server.
+
+The first deploy (below) used plain HTTP on 3000/8080/8081 with `COOKIE_SECURE=false`. Both have been replaced.
 
 ## Server
 - Dilmune Cloud server `Hackademics` (id `85faff30-505a-4ea2-bc9a-7ce4ef7d75ff`), DigitalOcean blr1,
@@ -43,8 +51,7 @@ disposable.
 - **The seed truncates tables (OPS-7).** Never re-run it against data you want to keep.
 
 ## Known trade-offs (demo deployment)
-- Plain HTTP only, with no TLS or domain (custom SSL is blocked on the Free plan). That is why
-  `COOKIE_SECURE=false` is set; without it, browsers drop the session cookie over http. Put a domain and TLS in
-  front and remove that line before handling real merchants.
+- TLS uses free `sslip.io` hostnames with Let's Encrypt (custom domains are blocked on the Free plan). `COOKIE_SECURE=true`.
+- Demo accounts only: `OTP_DEMO_EMAIL_DOMAINS` shows the OTP on screen for seeded `.example`/`.test` accounts, because no email provider exists. Real domains are rejected at boot.
 - `OTP_DEV_EXPOSE` keeps its production default of off.
 - Postgres is not published on the host. It is reachable only on the compose network.

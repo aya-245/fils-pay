@@ -42,7 +42,7 @@
 **What we fixed.** Every finding above, with the smallest change and a test. We finished FP-300 end to end:
 API, ledger to the fil, proportional fee reversal, payout netting, webhook, timeline, reports and
 reconciliation. The stack is hosted on one 1 vCPU / 2 GB server with TLS, resource limits, load shedding and
-self-restart. Test suites at submission: TypeScript **533/533**, Go **67/67**.
+self-restart. Test suites at submission: TypeScript **536/536**, Go **67/67**.
 
 **What we left alone.** We did not run any remediation against existing production data. Every finding that
 left bad rows behind has a read-only detection query (`docs/sql/existing-data-checks.sql`) and a proposed

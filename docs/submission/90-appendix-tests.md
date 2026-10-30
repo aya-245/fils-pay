@@ -4,25 +4,21 @@
 
 | Suite | Command | Result |
 |---|---|---|
-| API (apps/api) | `npm test` | **441 / 441** |
+| API (apps/api) | `npm test` | **444 / 444** |
 | Money (packages/money) | `npm test` | **40 / 40** |
 | Web (apps/web) | `npm test` | **21 / 21** |
 | Reporting (apps/reporting) | `npm test` | **17 / 17** |
 | Admin (apps/admin) | `npm test` | **6 / 6** |
 | Events (packages/events) | `npm test` | **4 / 4** |
 | Scripts | `npm test` | **4 / 4** |
-| **TypeScript total** | `npm test` | **533 / 533, 0 failed** |
+| **TypeScript total** | `npm test` | **536 / 536, 0 failed** |
 | Typecheck | `npm run typecheck` | 0 errors |
 | Go settlement | `go test -p 1 ./...` with `DATABASE_URL` | **67 / 67**, all packages `ok`, `go vet` clean (the one seeded-fixture test was run against the seeded DB, not skipped) |
 
-**Changes made after the full run.** The review fixes that followed (session rotation gated by config, login input
-bounds, pay-route matching, checkout messages) were each re-run with their affected suites:
-
-| Suites re-run | Result |
-|---|---|
-| auth, admin, app and payment-link routes, plus the new hardening tests | 100 / 100 and 86 / 86 |
-| web | 21 / 21 |
-| typecheck | clean |
+This is the final run on the submitted code. It includes every fix from the final pre-submission review: session
+rotation gated by config, login input bounds, pay-route matching, Caddy and deploy fixes, and the checkout status
+messages. The five original test helpers that the earlier rotation change had forced us to edit are back to their
+original form.
 
 **Existing tests we changed because they asserted a bug.** Each is listed in its finding in §4. Examples:
 - `adminAdjustmentImport.test.ts` expected 600 fils for 6.000 BD;

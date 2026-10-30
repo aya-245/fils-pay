@@ -64,7 +64,7 @@ https://168-144-92-39.sslip.io · admin.168-144-92-39.sslip.io · api.168-144-92
 
 ## 4 · Fixes and proof
 
-- **Smallest fix + a test for every finding** · TS **533 / 533**, Go **67 / 67** on a fresh seeded DB
+- **Smallest fix + a test for every finding** · TS **536 / 536**, Go **67 / 67** on a fresh seeded DB
 - **Tests that asserted bugs were corrected, never weakened** (e.g. 600 → 6000 fils for 6.000 BD)
 - **Money:** `parseBhdToFils`; scheme file from truncated integer + residue journaled (ADR-0002); largest-remainder splits; one ledger source for balances
 - **Concurrency:** `SELECT … FOR UPDATE` across the acquirer call; DB `CHECK (refunded ≤ captured)`; unique indexes + `ON CONFLICT` for callbacks and payout notifications
@@ -146,7 +146,7 @@ Open: in-memory rate limits (single instance), SSRF to internal https hosts, 3/6
 <!-- _class: appendix -->
 ## Appendix B · Test output and queries
 
-- `npm test` (fresh DB, migrate + seed): API 441 · money 40 · web 21 · reporting 17 · admin 6 · events 4 · scripts 4 = **533 / 533**
+- `npm test` (fresh DB, migrate + seed): API 444 · money 40 · web 21 · reporting 17 · admin 6 · events 4 · scripts 4 = **536 / 536**
 - `go test -p 1 ./...` with a DB: **67 / 67**, `go vet` clean
 - `scripts/integrity-check.ts` after 61k load-test pays + kill tests: every acknowledged pay committed, no double charge, all ledger groups net 0, refunded ≤ captured, cache = ledger
 - `docs/sql/existing-data-checks.sql`: 51 read-only queries, run against the seeded DB with `ON_ERROR_STOP=1` (exit 0)

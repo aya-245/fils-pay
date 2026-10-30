@@ -104,16 +104,37 @@ checked within a 300 s window.
 ## Capacity & hosting
 *(Numbers: `docs/CAPACITY.md`.)*
 
-**What's your capacity estimate and how did you get it?** k6 runs a fixed checkout scenario
-(create link, view, pay) against the same limits as prod (API 0.5 vCPU / 512 MB). We took the
-highest load that held p95 < 500 ms and < 1 % errors.
+**What's your capacity estimate and how did you get it?**
+- **The number:** about **50 concurrent checkout users, about 18.7 checkouts/s, about 58 req/s, at 0 errors and
+  0 shed**.
+- **How we got it:** we measured it **on the live server over HTTPS**, with a k6 staircase of 10, 25, 50, 100
+  and 150 users. Each user runs a fixed scenario: create link, open link, pay, then 1 s think time.
+- **Why we trust it:** a local run on a 3.6× faster core gave about 120 users. The server's core benchmarks at
+  27.5 % of that core, so the two results agree.
 
-**What happens past the limit?** The API sheds load: once in-flight requests or event-loop delay
-pass a threshold, it returns `503 + Retry-After` immediately instead of queueing. A crashed API
-exits non-zero and Docker restarts it. Postgres data is on a volume; every money write is one
-transaction.
+**Where's the bottleneck?** The single vCPU. At the top of the staircase, `docker stats` shows the API at its
+0.5-vCPU cap and Postgres using the rest. Memory isn't the limit: the API used about 85 MB of its 512 MB.
 
-**How do you know no data was lost?** `scripts/integrity-check` after kill tests checks:
+**What happens past the limit?** At 100–150 users, throughput holds at about 18.8 checkouts/s.
+- **The excess** gets `503 {"error":"overloaded"}` + `Retry-After` in about 0.7 s. It never hangs or times out.
+  A global in-flight cap, a pay cap with a short queue, and event-loop-delay shedding produce this.
+- **Server errors: 0.** The only non-2xx responses were shed 503s, plus 402 declines and 502 acquirer outages,
+  both of which the simulator produces by design.
+
+**Does it restart itself?** A `kill -9` of the API inside the container is back in 1.3 s (tini +
+`restart: always`). On a Postgres restart the API stays up and returns 503s for about 4 s; that used to crash
+the API, and we fixed it. One caveat: `docker kill` counts as a manual stop, so Docker doesn't restart the
+container then.
+
+**What did load testing find?**
+- missing pay-path indexes (Postgres CPU 54 % → 16 %);
+- a phantom 500 on every POST, from two async `onSend` hooks;
+- a Postgres restart crashing the API;
+- no overload protection;
+- the passive health check in our own Caddy config, which a final review caught.
+
+**How do you know no data was lost?** After 61k load-test pays and the kill tests, `scripts/integrity-check.ts`
+checks:
 - every ledger group nets to 0;
 - no link is paid twice;
 - refunded ≤ captured for every transaction;
@@ -121,10 +142,16 @@ transaction.
 - every 200 the client saw has a captured row.
 
 **Is it secure and reproducible?**
-- Secrets are generated and never in git (`scripts/env-keys.sh`, `keys/` ignored).
-- Postgres is not exposed to the internet.
-- Resource limits are in `ops/docker-compose.prod.yml`.
-- One command deploys it: `scripts/deploy-vm.sh`.
+- **Network:** TLS by Let's Encrypt via Caddy, which is the only public entry point. 3000/8080/8081 are bound to
+  localhost, and Postgres is never published.
+- **Secrets:** generated and never in git (`scripts/env-keys.sh`, `keys/` ignored), and never in the AI's context.
+- **Limits:** set per service in `ops/docker-compose.prod.yml`.
+- **Reproducible:** one command, `scripts/deploy-vm.sh`. It refuses to deploy during the 00:00–00:45 Bahrain
+  close window and refuses a dirty working tree.
+
+**How do judges log in on the live site?** There's no email provider. Seeded demo accounts on reserved
+`.example` / `.test` domains see their OTP on screen (`OTP_DEMO_EMAIL_DOMAINS`), and the config rejects real
+domains at boot.
 
 ## Process & AI
 **Why not just follow the repo's `CLAUDE.md`?** It contradicted the organisers' brief on units
