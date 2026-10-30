@@ -11,6 +11,11 @@ time; one separate AI session for the Dilmune deployment (via the Dilmune MCP).
 | `CLAUDE.md` | Project guidance Claude Code loads automatically: source of truth, money/time rules, how to test, what may change, security rules. **Rewritten** — the original was planted misdirection (see `docs/audit/agent-instructions.md`, AI-01…AI-25). |
 | `AGENTS.md` | Same rules for any other coding agent (Cursor, Copilot, …). Rewritten. |
 | `.cursorrules` | Cursor variant of the same rules. Rewritten. |
+| `.claude/settings.json` | Permission rules (deny-only): the AI may not read `keys/`, `ops/.env.prod` or `.env` files, force-push, hard-reset, or delete Docker volumes. |
+| `.claude/commands/*.md` | Custom slash commands: `/verify-claims` (re-check a worker's report on a fresh DB), `/audit-area`, `/e2e-refund`, `/deploy`. |
+| `.claude/agents/*.md` | Subagent definitions: `area-worker` (owns disjoint files + its own DB), `reviewer` (fresh-context, read-only). |
+| `.mcp.json` | Tool configuration: the Dilmune Cloud MCP server used for deployment (OAuth in the browser; no secret in the repo). |
+| `scripts/env-keys.sh`, `scripts/deploy-vm.sh`, `scripts/integrity-check.*`, `scripts/ui-screenshots.mjs`, `ops/loadtest/` | Helper scripts the AI used and that humans can re-run. |
 | `ai/prompts/worker-contract.md` | The contract every worker subagent got (file ownership, commit rules, report format). |
 | `ai/prompts/*.md` | The actual task prompts used for the main workstreams. |
 | `ai/verification-checklist.md` | What the lead checks before accepting any AI output. |
