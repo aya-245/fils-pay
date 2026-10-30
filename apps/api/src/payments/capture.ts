@@ -59,7 +59,9 @@ export async function captureTransaction(
   acquirer: AcquirerSimulator,
   input: CaptureInput,
 ): Promise<CaptureResult> {
-  const requestHash = hashRequest({ amountFils: input.amountFils ?? null });
+  // The transaction is part of the request: without it, reusing a key to
+  // capture a different transaction for the same amount replayed the first.
+  const requestHash = hashRequest({ transactionId: input.transactionId, amountFils: input.amountFils ?? null });
 
   return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {
@@ -163,7 +165,8 @@ export async function captureTransaction(
 
     // outcome === 'approved'. Integer math throughout — no float ever
     // enters this path.
-    const feeFils = applyRateFils(requestedAmount, Math.max(0, effectiveMdrBps - volumeTierBonusBps));
+    const appliedMdrBps = Math.max(0, effectiveMdrBps - volumeTierBonusBps);
+    const feeFils = applyRateFils(requestedAmount, appliedMdrBps);
     const newCapturedFils = addFils(capturedSoFar, requestedAmount);
     const newStatus = compareFils(newCapturedFils, amountAuthorized) === 0 ? "captured" : "partially_captured";
 
@@ -225,7 +228,7 @@ export async function captureTransaction(
       eventType: newStatus === "captured" ? "captured" : "partially_captured",
       amountFils: requestedAmount,
       actor: input.actor,
-      metadata: { feeFils, acquirerReference: acquirerResult.acquirerReference },
+      metadata: { feeFils, mdrBps: appliedMdrBps, acquirerReference: acquirerResult.acquirerReference },
     });
 
     const body = serializeTransaction(updatedTxn);

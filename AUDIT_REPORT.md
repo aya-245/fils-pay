@@ -9,7 +9,9 @@ planted misleading guidance (cents, UTC settlement, "money package frozen", "Mat
 fine", "never fix tests"); they were audited as findings (AI-01…AI-25) and rewritten.
 
 Detailed per-bug notes (what's wrong · why it happens · what it breaks · fix · test) live in
-`docs/audit/`. This file is the index.
+`docs/audit/`. This file is the index. **Short list of all 73 bugs: `BUGS.md`.** A second,
+fresh-context review pass (traps missed the first time, flawed ADRs 0003/0004/0006, tampered
+commit 098c2de) is in `docs/audit/review-pass.md`.
 
 ---
 

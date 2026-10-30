@@ -51,8 +51,8 @@ test("dash renders absent values as an em dash but keeps zero", () => {
   assert.equal(dash(0), "0");
 });
 
-test("dayStartIso converts a date input to a UTC day boundary", () => {
-  assert.equal(dayStartIso("2026-09-12"), "2026-09-12T00:00:00.000Z");
+test("dayStartIso converts a date input to an Asia/Bahrain day boundary", () => {
+  assert.equal(dayStartIso("2026-09-12"), "2026-09-12T00:00:00.000+03:00");
   assert.equal(dayStartIso(""), undefined);
 });
 

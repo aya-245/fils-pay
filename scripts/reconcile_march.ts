@@ -14,7 +14,10 @@ import { Client } from "pg";
 import { formatBhd, toFils } from "@filspay/money";
 
 export function monthBounds(year: number, month: number): { start: Date; end: Date } {
-  return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 1)) };
+  // Asia/Bahrain month (UTC+3, no DST): settlement days close at Bahrain
+  // midnight, so a UTC month misattributes the last 3 hours of each month.
+  const bahrainMidnight = (y: number, m: number) => new Date(Date.UTC(y, m, 1) - 3 * 60 * 60 * 1000);
+  return { start: bahrainMidnight(year, month - 1), end: bahrainMidnight(year, month) };
 }
 
 export interface ResidueRow {

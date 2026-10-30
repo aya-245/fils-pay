@@ -30,10 +30,9 @@ export function dateTime(iso: string | null | undefined): string {
  * `occurred_at` directly, so pretending otherwise here would invent a
  * precision the endpoint doesn't have.
  */
-// YA: UTC day boundary, NOT Bahrain. filters are 3h off vs settlement days. known.
-// fixed, uses bahrain time now — am
+// Asia/Bahrain day boundary (UTC+3, no DST), matching settlement business days.
 export function dayStartIso(dateValue: string): string | undefined {
-  return dateValue ? `${dateValue}T00:00:00.000Z` : undefined;
+  return dateValue ? `${dateValue}T00:00:00.000+03:00` : undefined;
 }
 
 /**

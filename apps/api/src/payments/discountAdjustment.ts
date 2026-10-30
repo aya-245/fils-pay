@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { applyRateFils, parseBhdToFils, toFils } from "@filspay/money";
 import { withTransaction } from "../db/withTransaction.js";
+import { estimateFeeFils } from "../fees/estimate.js";
 import { BadRequestError } from "../lib/errors.js";
 
 
@@ -63,8 +64,8 @@ export async function applyCaptureDiscountAdjustment(
     const counts = countRow.rows[0];
     if (counts && Number(counts.adjustments) >= Number(counts.capture_events)) return;
 
-    const eventRow = await client.query<{ metadata: { feeFils?: number } }>(
-      `SELECT metadata FROM transaction_events
+    const eventRow = await client.query<{ amount_fils: string; metadata: { feeFils?: number; mdrBps?: number } }>(
+      `SELECT amount_fils, metadata FROM transaction_events
         WHERE transaction_id = $1 AND event_type IN ('captured', 'partially_captured')
         ORDER BY occurred_at DESC, id DESC LIMIT 1`,
       [input.transactionId],
@@ -72,7 +73,15 @@ export async function applyCaptureDiscountAdjustment(
     const feeBeforeDiscount = toFils(eventRow.rows[0]?.metadata?.feeFils ?? 0);
     if (feeBeforeDiscount <= 0) return;
 
-    const discountFils = applyRateFils(feeBeforeDiscount, discountBps);
+    // ARCHITECTURE / settlement ComputeSettlementFee: the discount reduces the
+    // amount the MDR is charged on, so the discounted fee is
+    // MDR(amount - discount(amount)). Discounting the fee instead (the old
+    // code) rounds differently and disagreed with Go settlement by a fil.
+    const mdrBps = eventRow.rows[0]?.metadata?.mdrBps;
+    const discountFils =
+      mdrBps === undefined
+        ? applyRateFils(feeBeforeDiscount, discountBps) // legacy event without the applied rate
+        : toFils(Number(feeBeforeDiscount) - estimateFeeFils(Math.abs(Number(eventRow.rows[0]!.amount_fils)), mdrBps, discountBps));
     if (discountFils <= 0) return;
 
     const entryGroupId = randomUUID();

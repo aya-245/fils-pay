@@ -10,7 +10,7 @@ import {
 import { rotateApiKeyAsAdmin } from "../admin/apiKeys.js";
 import { startImpersonation } from "../admin/impersonation.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
 import { recordKycReviewInTx } from "../onboarding/review.js";
 import { createWebhookDeliveryArchive, replayWebhookDeliveryArchive } from "../webhooks/archiveReplay.js";
 import { DEFAULT_REPLAY_STATUSES, replayWebhookDeliveriesBatch } from "../webhooks/replayBatch.js";
@@ -232,6 +232,11 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
       }
       if (statuses !== undefined && (!Array.isArray(statuses) || statuses.length === 0)) {
         throw new BadRequestError("invalid_request", "statuses, if given, must be a non-empty array");
+      }
+      // Re-sending already-delivered events (e.g. settlement.paid) is not
+      // routine: only finance/super_admin may include 'succeeded'.
+      if (statuses?.includes("succeeded") && adminAuth.role !== "finance" && adminAuth.role !== "super_admin") {
+        throw new ForbiddenError("forbidden", "replaying succeeded deliveries requires finance or super_admin");
       }
 
       const result = await replayWebhookDeliveriesBatch(app.db, {

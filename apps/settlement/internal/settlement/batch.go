@@ -408,6 +408,17 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 		tx.Rollback(ctx) //nolint:errcheck
 		return PayoutResult{BatchID: batchID, MerchantID: merchantID, NotClosed: true, NetPayoutFils: money.Fils(netPayout)}, nil
 	}
+	// A batch closed while the merchant was live must not pay out once the
+	// merchant is a test merchant (a re-run returns AlreadyClosed before
+	// CloseBatch's test_mode check and would otherwise reach this payout).
+	var testMode bool
+	if err := tx.QueryRow(ctx, `SELECT test_mode FROM merchants WHERE id = $1`, merchantID).Scan(&testMode); err != nil {
+		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: load merchant: %w", err)
+	}
+	if testMode {
+		tx.Rollback(ctx) //nolint:errcheck
+		return PayoutResult{BatchID: batchID, MerchantID: merchantID, NotClosed: true, NetPayoutFils: money.Fils(netPayout)}, nil
+	}
 
 	// Post the payout leg pair only when net_payout_fils > 0 — omitted
 	// entirely for an empty or fee-only batch (ledger_entries has a CHECK
