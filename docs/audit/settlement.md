@@ -33,8 +33,8 @@
 - **What's wrong:** the filter was `status <> 'open'`, i.e. it selected **closed and paid** batches — the opposite of "it only touches open batches". A paid batch's `fee_fils`/`net_payout_fils` were rewritten after the payout had left.
 - **Why:** inverted predicate; the existing test only exercised a closed (unpaid) batch.
 - **What it breaks:** paid batches no longer match what was disbursed; statements change retroactively (ARCHITECTURE: "closed and paid batches are left alone").
-- **Fix:** only `status = 'closed'` (not yet paid) batches are recalculated.
-- **Test:** `settlement/recalculate_mdr_paid_test.go` (paid batch unchanged); existing closed-batch test still green.
+- **Fix:** only `status = 'open'` batches are recalculated; closed and paid batches are final (memo: "changes on closed ones too"; ARCHITECTURE: "closed and paid batches are left alone").
+- **Test:** `settlement/recalculate_mdr_paid_test.go` (closed and paid batches unchanged). Existing `recalculate_mdr_test.go` tests closed a batch and asserted it was rewritten ("history gets rewritten… that's intended" — planted); they now reopen the batch (`reopenBatch`) so they still test the fee math on an open batch.
 
 ## SET-5 — Daily close runs at ~03:15 Bahrain instead of ~00:15
 - **Severity:** High

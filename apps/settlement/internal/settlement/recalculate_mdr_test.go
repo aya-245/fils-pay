@@ -35,6 +35,9 @@ func TestRecalculateMDR_RecomputesAtCurrentRate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseBatch: %v", err)
 	}
+	// Recalculation only applies to open batches (closed and paid are final),
+	// so reopen this one to exercise the fee math.
+	reopenBatch(t, pool, closed.BatchID)
 
 	// Finance negotiates the rate up by 50bps and asks for the historical
 	// batch to reflect it.
@@ -104,9 +107,11 @@ func TestRecalculateMDR_AdjustmentLedgerGroupBalances(t *testing.T) {
 	start, _ := BusinessDayWindow(businessDate)
 	insertCaptureEvent(t, pool, merchantID, originalMdrBps, 20_000, start.Add(time.Hour))
 
-	if _, err := CloseBatch(ctx, pool, merchantID, businessDate); err != nil {
+	closed, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
 		t.Fatalf("CloseBatch: %v", err)
 	}
+	reopenBatch(t, pool, closed.BatchID)
 	if _, err := pool.Exec(ctx, `UPDATE merchants SET mdr_bps = 275 WHERE id = $1`, merchantID); err != nil {
 		t.Fatalf("update mdr_bps: %v", err)
 	}
@@ -159,9 +164,11 @@ func TestRecalculateMDR_UnchangedRateAdjustsNothing(t *testing.T) {
 	start, _ := BusinessDayWindow(businessDate)
 	insertCaptureEvent(t, pool, merchantID, mdrBps, 7_500, start.Add(time.Hour))
 
-	if _, err := CloseBatch(ctx, pool, merchantID, businessDate); err != nil {
+	unchanged, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
 		t.Fatalf("CloseBatch: %v", err)
 	}
+	reopenBatch(t, pool, unchanged.BatchID)
 
 	// No rate change: the recomputation must land on exactly the figure the
 	// batch already froze, so nothing is posted and nothing is rewritten.
@@ -204,13 +211,16 @@ func TestRecalculateMDR_OutOfRangeBatchUntouched(t *testing.T) {
 	insertCaptureEvent(t, pool, merchantID, originalMdrBps, 6_000, inStart.Add(time.Hour))
 	insertCaptureEvent(t, pool, merchantID, originalMdrBps, 6_000, outStart.Add(time.Hour))
 
-	if _, err := CloseBatch(ctx, pool, merchantID, inRangeDate); err != nil {
+	inBatch, err := CloseBatch(ctx, pool, merchantID, inRangeDate)
+	if err != nil {
 		t.Fatalf("CloseBatch(in range): %v", err)
 	}
 	outBatch, err := CloseBatch(ctx, pool, merchantID, outOfRangeDate)
 	if err != nil {
 		t.Fatalf("CloseBatch(out of range): %v", err)
 	}
+	reopenBatch(t, pool, inBatch.BatchID)
+	reopenBatch(t, pool, outBatch.BatchID)
 
 	if _, err := pool.Exec(ctx, `UPDATE merchants SET mdr_bps = 400 WHERE id = $1`, merchantID); err != nil {
 		t.Fatalf("update mdr_bps: %v", err)
