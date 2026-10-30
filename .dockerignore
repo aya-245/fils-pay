@@ -1,0 +1,10 @@
+**/node_modules
+.git
+instructions/
+.claude/
+**/dist
+**/*.tsbuildinfo
+.env
+.env.*
+ops/.env.docker
+**/data/kyc
