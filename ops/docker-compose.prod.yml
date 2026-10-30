@@ -1,0 +1,89 @@
+# Production stack for a single Linux VM (e.g. the Dilmune Cloud server).
+# Images are built on the workstation (`docker compose -f ops/docker-compose.prod.yml build`)
+# and shipped with scripts/deploy-vm.sh, so nothing compiles on the small box.
+# Every secret comes from ops/.env.prod (built with scripts/env-keys.sh; never committed).
+# Postgres is reachable only on the compose network.
+
+x-node: &node
+  image: filspay-node:latest
+  build:
+    context: ..
+    dockerfile: ops/Dockerfile.node
+  env_file: .env.prod
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: filspay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in ops/.env.prod}
+      POSTGRES_DB: filspay
+    volumes:
+      - filspay_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filspay -d filspay"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    <<: *node
+    command: ["npm", "run", "migrate"]
+    restart: "no"
+    profiles: ["jobs"]
+
+  api:
+    <<: *node
+    command: ["npx", "tsx", "apps/api/src/index.ts"]
+    ports:
+      - "3000:3000"
+
+  reporting:
+    <<: *node
+    command: ["npx", "tsx", "apps/reporting/src/index.ts"]
+
+  settlement:
+    image: filspay-settlement:latest
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.go
+    command: ["./settlement", "daemon"]
+    env_file: .env.prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: filspay-web:latest
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+      args:
+        APP: web
+        API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+        WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  admin:
+    image: filspay-admin:latest
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+      args:
+        APP: admin
+        API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+        WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8080}
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+volumes:
+  filspay_pgdata:
