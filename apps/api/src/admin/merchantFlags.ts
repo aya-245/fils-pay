@@ -1,21 +1,17 @@
 import type { PoolClient } from "pg";
 
-/** Clears the sandbox flag when a merchant has no open authorizations. */
+/**
+ * Previously cleared `test_mode` whenever a merchant had scanned
+ * transactions and no open authorizations -- but a sandbox merchant's whole
+ * purpose is to have (test) transactions, and the open-authorization count
+ * was always 0, so a status recompute silently promoted every sandbox
+ * merchant to live. Going live is an explicit, separately audited action;
+ * a recompute never changes merchant flags.
+ */
 export async function reconcileSandboxFlag(
-  client: PoolClient,
-  merchantId: string,
-  summary: { scanned: number; openAuthorizations: number },
+  _client: PoolClient,
+  _merchantId: string,
+  _summary: { scanned: number; openAuthorizations: number },
 ): Promise<string[]> {
-  const flagsUpdated: string[] = [];
-  if (summary.scanned > 0 && summary.openAuthorizations === 0) {
-    const merchantRow = await client.query<{ test_mode: boolean }>(
-      `SELECT test_mode FROM merchants WHERE id = $1 FOR UPDATE`,
-      [merchantId],
-    );
-    if (merchantRow.rows[0]?.test_mode) {
-      await client.query(`UPDATE merchants SET test_mode = false WHERE id = $1`, [merchantId]);
-      flagsUpdated.push("test_mode");
-    }
-  }
-  return flagsUpdated;
+  return [];
 }

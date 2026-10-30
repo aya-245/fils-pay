@@ -18,7 +18,12 @@ interface CandidateRow {
   refunded_fils: string;
 }
 
-/** Backfill transaction statuses from amounts for one merchant. */
+/**
+ * Backfill transaction statuses from amounts for one merchant. Only the
+ * capture/refund family is recomputed: 'chargeback' (set by the acquirer
+ * callback, not derivable from amounts) and 'authorized'/'voided' are never
+ * overwritten.
+ */
 export async function recomputeTransactionStatusesForMerchant(
   client: PoolClient,
   merchantId: string,
@@ -26,7 +31,7 @@ export async function recomputeTransactionStatusesForMerchant(
   const candidates = await client.query<CandidateRow>(
     `SELECT id, status, amount_fils, captured_fils, refunded_fils
        FROM transactions
-      WHERE merchant_id = $1 AND status NOT IN ('authorized', 'voided')
+      WHERE merchant_id = $1 AND status IN ('captured', 'partially_captured', 'partially_refunded', 'refunded')
       FOR UPDATE`,
     [merchantId],
   );

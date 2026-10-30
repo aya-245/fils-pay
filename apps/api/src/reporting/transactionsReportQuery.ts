@@ -34,6 +34,22 @@ interface TransactionReportQueryRow {
   occurred_at: Date;
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Normalises a saved-filter bound to an ISO instant. A bare date is a
+ * Bahrain business day boundary (ADR-0003, daily windows: fixed UTC+3), not
+ * a session-timezone midnight. Anything unparseable is rejected rather than
+ * passed to the database.
+ */
+function boundToInstant(name: string, raw: unknown): string {
+  if (typeof raw !== "string") throw new RangeError(`transactions report: ${name} must be a string`);
+  const text = DATE_ONLY.test(raw) ? `${raw}T00:00:00+03:00` : raw;
+  const ms = Date.parse(text);
+  if (Number.isNaN(ms)) throw new RangeError(`transactions report: invalid ${name} "${raw}"`);
+  return new Date(ms).toISOString();
+}
+
 export async function runTransactionsReport(
   pool: Pool,
   filter: TransactionReportFilter,
@@ -41,16 +57,17 @@ export async function runTransactionsReport(
   const params: unknown[] = [filter.merchantId];
   const conditions: string[] = ["merchant_id = $1"];
   if (filter.status) {
+    if (typeof filter.status !== "string") throw new RangeError("transactions report: status must be a string");
     params.push(filter.status);
     conditions.push(`status = $${params.length}`);
   }
   if (filter.from) {
-    params.push(filter.from);
-    conditions.push(`occurred_at >= $${params.length}`);
+    params.push(boundToInstant("from", filter.from));
+    conditions.push(`occurred_at >= $${params.length}::timestamptz`);
   }
   if (filter.to) {
-    params.push(filter.to);
-    conditions.push(`occurred_at < $${params.length}`);
+    params.push(boundToInstant("to", filter.to));
+    conditions.push(`occurred_at < $${params.length}::timestamptz`);
   }
 
   const result = await pool.query<TransactionReportQueryRow>(

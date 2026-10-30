@@ -35,6 +35,13 @@ export async function rotateApiKeyAsAdmin(
       rotatedFromKeyId: input.apiKeyId,
     });
 
+    // Revoke the replaced key in the same transaction: a rotation that leaves
+    // the old credential valid is not a rotation.
+    await client.query(
+      `UPDATE api_keys SET revoked_at = now(), revoked_reason = 'rotated' WHERE id = $1 AND merchant_id = $2`,
+      [input.apiKeyId, input.merchantId],
+    );
+
     await insertAdminAuditLog(client, {
       adminUserId: input.adminUserId,
       action: "api_key_rotate",

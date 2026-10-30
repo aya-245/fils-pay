@@ -13,6 +13,6 @@ export interface MultipartPluginOptions {
 // MK: fileSize limit only — files count is unlimited. one file per request is enforced in routes/kyc.ts
 export const multipartPlugin = fp<MultipartPluginOptions>(async (app: FastifyInstance, opts): Promise<void> => {
   await app.register(multipart, {
-    limits: { fileSize: opts.config.kycMaxFileSizeBytes },
+    limits: { fileSize: opts.config.kycMaxFileSizeBytes, files: 1, fields: 10, parts: 12, fieldSize: 10_240 },
   });
 });

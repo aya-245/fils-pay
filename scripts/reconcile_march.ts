@@ -3,12 +3,12 @@
  * One-off March 2026 reconciliation sweep. Finance wants the scheme
  * rounding residue (the gap between what gets journaled at capture and
  * what the scheme export can actually carry at 2 decimal places) written
- * off for March before the books close on it. Run manually, once — see
+ * off for March before the books close on it. Run manually; re-running is a no-op (deterministic entry_group_id per merchant) — see
  * scripts/out/reconcile-2026-03.log for the last real run's output.
  *
  * Usage: DATABASE_URL=postgres://... npx tsx scripts/reconcile_march.ts
  */
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { Client } from "pg";
 import { formatBhd, toFils } from "@filspay/money";
@@ -68,10 +68,27 @@ function groupByMerchant(rows: ResidueRow[]): MerchantResidue[] {
   return [...byMerchant.values()];
 }
 
-// am: re-running is safe, entry_group_id dedupes it
-async function postResidueCorrection(client: Client, merchant: MerchantResidue, now: Date): Promise<void> {
-  if (merchant.residueFils <= 0) return;
-  const entryGroupId = randomUUID();
+/** Deterministic group id per (period, merchant): the idempotency key. */
+export function sweepEntryGroupId(year: number, month: number, merchantId: string): string {
+  const h = createHash("sha256").update(`reconcile_sweep:${year}-${month}:${merchantId}`).digest("hex");
+  // shaped as a UUID; the content is a hash, so it is stable across runs
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Returns false (and posts nothing) when this merchant's sweep for the period already exists. */
+async function postResidueCorrection(
+  client: Client,
+  merchant: MerchantResidue,
+  now: Date,
+  year: number,
+  month: number,
+): Promise<boolean> {
+  if (merchant.residueFils <= 0) return false;
+  const entryGroupId = sweepEntryGroupId(year, month, merchant.merchantId);
+  const existing = await client.query(`SELECT 1 FROM ledger_entries WHERE entry_group_id = $1 LIMIT 1`, [
+    entryGroupId,
+  ]);
+  if ((existing.rowCount ?? 0) > 0) return false;
   const description = "March 2026 scheme rounding residue sweep — manual recon per finance";
   await client.query(
     `INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
@@ -79,6 +96,7 @@ async function postResidueCorrection(client: Client, merchant: MerchantResidue, 
             ($1, $2, 'scheme_rounding_residue', 'credit', $3, $4, $5)`,
     [entryGroupId, merchant.merchantId, merchant.residueFils, now.toISOString(), description],
   );
+  return true;
 }
 
 async function main(): Promise<void> {
@@ -105,8 +123,14 @@ async function main(): Promise<void> {
 
     await client.query("BEGIN");
     try {
+      // serialise concurrent runs; the per-merchant deterministic group id makes a second run a no-op
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('reconcile_sweep:2026-03'))`);
       for (const merchant of merchantResidues) {
-        await postResidueCorrection(client, merchant, now);
+        const posted = await postResidueCorrection(client, merchant, now, 2026, 3);
+        if (!posted) {
+          console.log(`merchant ${merchant.merchantId}: already swept (or nothing to sweep), skipped`);
+          continue;
+        }
         console.log(
           `merchant ${merchant.merchantId}: ${merchant.lineCount} line(s), residue ${formatBhd(toFils(merchant.residueFils))} BD (${merchant.residueFils} fils)`,
         );
