@@ -1,0 +1,53 @@
+# HTTPS front door for the single-VM deployment.
+# Hostnames come from ops/.env.prod. With no purchased domain, use the
+# sslip.io names that resolve to the server IP, e.g. for 168.144.92.39:
+#   WEB_HOST=168-144-92-39.sslip.io
+#   ADMIN_HOST=admin.168-144-92-39.sslip.io
+#   API_HOST=api.168-144-92-39.sslip.io
+# Caddy obtains Let's Encrypt certificates automatically (TLS-ALPN on 443, or
+# HTTP-01 when port 80 is open) and renews them; certs persist in caddy_data.
+{
+	email {$ACME_EMAIL:ops@example.com}
+	servers {
+		timeouts {
+			read_header 10s
+			idle 60s
+		}
+	}
+}
+
+(common) {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	log {
+		output stdout
+		format console
+	}
+}
+
+# Hosted checkout + merchant dashboard (nginx proxies /api -> api same-origin).
+{$WEB_HOST} {
+	import common
+	reverse_proxy web:8080
+}
+
+# Admin console.
+{$ADMIN_HOST} {
+	import common
+	reverse_proxy admin:8080
+}
+
+# Partner API (server-to-server integrations, webhooks registration, etc.).
+{$API_HOST} {
+	import common
+	reverse_proxy api:3000 {
+		# API restarting: fail fast instead of hanging the client.
+		lb_try_duration 2s
+		fail_duration 5s
+	}
+}
