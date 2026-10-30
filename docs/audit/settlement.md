@@ -26,3 +26,21 @@
 - **What it breaks:** pressing the button overwrites every merchant's balance with a wrong figure; Yousif had to run the CLI to repair it.
 - **Fix:** the button uses the same ledger source as the CLI (`merchant_payable` credit − debit), in one transaction.
 - **Test:** `ledger/refresh_ledger_test.go` (button == CLI after a payout). Existing `refresh_test.go` helper changed: it seeded export lines with **no ledger legs** (impossible for a real batch, and it encoded the bug) — it now posts the matching balanced capture legs; expectations unchanged.
+
+## SET-4 — MDR recalculation rewrites batches that were already paid out
+- **Severity:** Critical (history of paid money changes)
+- **Where:** `apps/settlement/internal/settlement/recalculate_mdr.go` batch query
+- **What's wrong:** the filter was `status <> 'open'`, i.e. it selected **closed and paid** batches — the opposite of "it only touches open batches". A paid batch's `fee_fils`/`net_payout_fils` were rewritten after the payout had left.
+- **Why:** inverted predicate; the existing test only exercised a closed (unpaid) batch.
+- **What it breaks:** paid batches no longer match what was disbursed; statements change retroactively (ARCHITECTURE: "closed and paid batches are left alone").
+- **Fix:** only `status = 'closed'` (not yet paid) batches are recalculated.
+- **Test:** `settlement/recalculate_mdr_paid_test.go` (paid batch unchanged); existing closed-batch test still green.
+
+## SET-5 — Daily close runs at ~03:15 Bahrain instead of ~00:15
+- **Severity:** High
+- **Where:** `apps/settlement/internal/scheduler/daemon.go` `runIfDue`; new helper `BusinessDate` in `settlement/window.go`
+- **What's wrong:** the daemon passed `time.Now().UTC()` to `BusinessDayWindow`, which uses the argument's **own** calendar date. From 00:00–03:00 Bahrain the UTC date is still yesterday, so the next close only became due when the UTC date flipped: 03:00 Bahrain + 15 min delay.
+- **Why:** an instant used where a calendar date was expected (the "UTC here is fine" comment was wrong).
+- **What it breaks:** close runs 3 h late ("daily close is running at 3am local").
+- **Fix:** convert the instant to its Asia/Bahrain date (`BusinessDate`) before building the window.
+- **Test:** `TestBusinessDate_UsesBahrainDateOfUTCInstant`. Run Go tests with `go test -p 1 ./...` — packages share one DB and the balance-refresh tests rebuild every merchant.
