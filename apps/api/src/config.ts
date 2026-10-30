@@ -39,6 +39,25 @@ export interface Config {
   cookieName: string;
   cookieSecure: boolean;
 
+  /** Fastify `trustProxy`: which hops may set X-Forwarded-For/-Proto, so
+   *  request.ip is the real client (per-IP rate limits, session ip_address).
+   *  TRUST_PROXY: "false"/"true", a hop count ("1"), or a comma list of
+   *  IPs/CIDRs/proxy-addr names. Default: loopback + private ranges (the
+   *  nginx/Caddy containers on the docker network), never the public internet. */
+  trustProxy: boolean | number | string;
+
+  /** Login / OTP brute-force limits (auth/rateLimit.ts): max attempts per
+   *  sliding window, per client IP and per account. 0 disables that limit
+   *  (the NODE_ENV=test default, so suites that log in hundreds of times
+   *  from 127.0.0.1 aren't throttled; the rate-limit tests set them). */
+  authRateLimitWindowSeconds: number;
+  authLoginMaxPerIp: number;
+  authLoginMaxPerAccount: number;
+  authOtpVerifyMaxPerIp: number;
+  authOtpVerifyMaxPerAccount: number;
+  authOtpResendMaxPerIp: number;
+  authOtpResendMaxPerAccount: number;
+
   /** Cookie carrying an `admin_sessions` token. A completely separate name,
    *  table, and code path from `cookieName`/`sessions` — `requireAdminSession`
    *  reads only this one and `requireMerchantAuth` never reads it at all, so
@@ -110,6 +129,9 @@ export interface Config {
   webhookPollIntervalMs: number;
   /** Per-delivery-attempt HTTP timeout passed to the transport, milliseconds. */
   webhookRequestTimeoutMs: number;
+  /** Retry backoff jitter as a fraction (0.1 = +-10 %). 0 under NODE_ENV=test
+   *  so retry timing is deterministic in tests. */
+  webhookBackoffJitterRatio: number;
 
   /** Shared secret the acquirer signs its async callbacks with
    *  (routes/acquirerCallbacks.ts). Platform-level, not per-merchant —
@@ -143,6 +165,14 @@ function parseFloatEnv(value: string | undefined, fallback: number): number {
     throw new Error(`loadConfig: expected a number, got "${value}"`);
   }
   return parsed;
+}
+
+function parseTrustProxyEnv(value: string | undefined): Config["trustProxy"] {
+  if (value === undefined || value === "") return "loopback,linklocal,uniquelocal";
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^\d+$/.test(value)) return Number.parseInt(value, 10);
+  return value;
 }
 
 function parseBoolEnv(value: string | undefined, fallback: boolean): boolean {
@@ -229,6 +259,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     cookieName: env.COOKIE_NAME ?? "fp_sid",
     cookieSecure: parseBoolEnv(env.COOKIE_SECURE, nodeEnv === "production"),
 
+    trustProxy: parseTrustProxyEnv(env.TRUST_PROXY),
+
+    authRateLimitWindowSeconds: parseIntEnv(env.AUTH_RATE_LIMIT_WINDOW_SECONDS, 900),
+    authLoginMaxPerIp: parseIntEnv(env.AUTH_LOGIN_MAX_PER_IP, nodeEnv === "test" ? 0 : 50),
+    authLoginMaxPerAccount: parseIntEnv(env.AUTH_LOGIN_MAX_PER_ACCOUNT, nodeEnv === "test" ? 0 : 10),
+    authOtpVerifyMaxPerIp: parseIntEnv(env.AUTH_OTP_VERIFY_MAX_PER_IP, nodeEnv === "test" ? 0 : 50),
+    authOtpVerifyMaxPerAccount: parseIntEnv(env.AUTH_OTP_VERIFY_MAX_PER_ACCOUNT, nodeEnv === "test" ? 0 : 15),
+    authOtpResendMaxPerIp: parseIntEnv(env.AUTH_OTP_RESEND_MAX_PER_IP, nodeEnv === "test" ? 0 : 20),
+    authOtpResendMaxPerAccount: parseIntEnv(env.AUTH_OTP_RESEND_MAX_PER_ACCOUNT, nodeEnv === "test" ? 0 : 5),
+
     adminCookieName: env.ADMIN_COOKIE_NAME ?? "fp_admin_sid",
     adminSessionTtlHours: parseIntEnv(env.ADMIN_SESSION_TTL_HOURS, 8),
     adminPendingSessionTtlMinutes: parseIntEnv(env.ADMIN_PENDING_SESSION_TTL_MINUTES, 10),
@@ -254,6 +294,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookBackoffCapMs: parseIntEnv(env.WEBHOOK_BACKOFF_CAP_MS, 21_600_000),
     webhookPollIntervalMs: parseIntEnv(env.WEBHOOK_POLL_INTERVAL_MS, 5_000),
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
+    webhookBackoffJitterRatio: parseFloatEnv(env.WEBHOOK_BACKOFF_JITTER_RATIO, nodeEnv === "test" ? 0 : 0.1),
 
     acquirerCallbackSigningSecret,
     acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),

@@ -10,6 +10,7 @@ import {
   revokeSession,
 } from "../auth/sessions.js";
 import { withTransaction } from "../db/withTransaction.js";
+import { createAuthRateLimiters, enforceRateLimit } from "../auth/rateLimit.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
 /**
@@ -49,12 +50,18 @@ interface MerchantUserRow {
  * promoted.
  */
 export async function authRoutes(app: FastifyInstance): Promise<void> {
+  // Brute-force / credential-stuffing limits (per client IP and per account),
+  // checked before any argon2 or OTP work. request.ip honours trustProxy.
+  const limits = createAuthRateLimiters(app.config);
+
   /** POST /v1/auth/login — step 1. */
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const { merchantId, email, password } = request.body ?? {};
     if (!merchantId || !email || !password) {
       throw new BadRequestError("invalid_request", "merchantId, email and password are required");
     }
+    enforceRateLimit(reply, limits.loginIp, request.ip);
+    enforceRateLimit(reply, limits.loginAccount, `${String(merchantId)}:${String(email).toLowerCase()}`);
 
     const userResult = await app.db.query<MerchantUserRow>(
       `SELECT mu.id, mu.merchant_id, mu.email, mu.role, mu.password_hash
@@ -122,6 +129,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!code) {
         throw new BadRequestError("invalid_request", "code is required");
       }
+      enforceRateLimit(reply, limits.otpVerifyIp, request.ip);
 
       const rawToken = request.cookies[app.config.cookieName];
       if (!rawToken) {
@@ -131,6 +139,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!pending || !pending.otpChallengeId) {
         throw new UnauthorizedError("no_pending_session");
       }
+      // Per account, across sessions: re-logging-in for fresh challenges
+      // cannot multiply the per-challenge guess budget without bound.
+      enforceRateLimit(reply, limits.otpVerifyAccount, pending.merchantUserId);
 
       // Spend a guess atomically BEFORE comparing, so parallel requests cannot
       // exceed max_attempts (see claimOtpAttempt).
@@ -147,23 +158,27 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         throw new UnauthorizedError("invalid_code");
       }
 
-      const { merchantUser: merchantUserResult } = await withTransaction(app.db, async (client) => {
+      const { merchantUser: merchantUserResult, rotatedToken } = await withTransaction(app.db, async (client) => {
         if (!(await consumeOtpChallenge(client, "otp_challenges", claim.id))) {
           throw new GoneError("otp_expired");
         }
-        await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
+        // Rotates the token: the pre-OTP cookie value is dead from here on (FP-198).
+        const promoted = await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
+        if (!promoted) {
+          throw new UnauthorizedError("no_pending_session");
+        }
         const result = await client.query<{ merchant_id: string; role: "owner" | "finance" | "support" }>(
           `SELECT merchant_id, role FROM merchant_users WHERE id = $1`,
           [pending.merchantUserId],
         );
-        return { merchantUser: result.rows[0] };
+        return { merchantUser: result.rows[0], rotatedToken: promoted.rawToken };
       });
       if (!merchantUserResult) {
         throw new Error("otp/verify: merchant_users row disappeared mid-transaction");
       }
 
-      // Browser lifetime matching the promoted session.
-      reply.setCookie(app.config.cookieName, rawToken, {
+      // New token, browser lifetime matching the promoted session.
+      reply.setCookie(app.config.cookieName, rotatedToken, {
         httpOnly: true,
         path: "/",
         sameSite: "lax",
@@ -185,6 +200,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
    * resend never resets the guess budget.
    */
   app.post("/otp/resend", async (request: FastifyRequest, reply: FastifyReply) => {
+    enforceRateLimit(reply, limits.otpResendIp, request.ip);
     const rawToken = request.cookies[app.config.cookieName];
     if (!rawToken) {
       throw new UnauthorizedError("no_pending_session");
@@ -193,6 +209,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!pending || !pending.otpChallengeId) {
       throw new UnauthorizedError("no_pending_session");
     }
+    enforceRateLimit(reply, limits.otpResendAccount, pending.merchantUserId);
 
     const existing = await app.db.query<{ id: string; created_at: Date; attempt_count: number }>(
       `SELECT id, created_at, attempt_count FROM otp_challenges WHERE id = $1`,

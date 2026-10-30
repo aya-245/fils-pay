@@ -34,6 +34,22 @@ async function createMerchant(label: string): Promise<string> {
   return result.rows[0]!.id;
 }
 
+/**
+ * Test isolation in a shared database: move this consumer's watermark to the
+ * current head of the outbox so a pass only sees the events the test itself
+ * enqueues next, never rows other suites (apps/api) left behind.
+ */
+async function skipConsumerToHead(): Promise<void> {
+  await pool.query(
+    `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id, updated_at)
+     VALUES ($1, (SELECT COALESCE(MAX(id), 0) FROM outbox_events), now())
+     ON CONFLICT (consumer_name) DO UPDATE
+       SET last_processed_id = GREATEST(reporting_outbox_cursor.last_processed_id, EXCLUDED.last_processed_id),
+           updated_at = now()`,
+    [CONSUMER_NAME],
+  );
+}
+
 async function getCursor(): Promise<bigint> {
   const result = await pool.query<{ last_processed_id: string }>(
     `SELECT last_processed_id FROM reporting_outbox_cursor WHERE consumer_name = $1`,
@@ -43,6 +59,7 @@ async function getCursor(): Promise<bigint> {
 }
 
 test("runConsumerPass: end-to-end over real events with the producers' exact payload shapes populates merchant_daily_volume and advances the watermark", async () => {
+  await skipConsumerToHead();
   const merchantId = await createMerchant("e2e-volume");
   const txnId = randomUUID();
 
@@ -88,6 +105,7 @@ test("runConsumerPass: end-to-end over real events with the producers' exact pay
 });
 
 test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_payout_trends", async () => {
+  await skipConsumerToHead();
   const merchantId = await createMerchant("e2e-payout");
   const batchResult = await pool.query<{ id: string }>(
     `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
@@ -119,6 +137,7 @@ test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_pay
 
 // MK: this is the proof exactly-once holds.
 test("runConsumerPass: atomicity — an apply failure partway through a multi-event batch rolls back the WHOLE pass, neither watermark nor any rollup write from that batch persists", async () => {
+  await skipConsumerToHead();
   const merchantId = await createMerchant("atomicity");
 
   // Event 1: valid, would successfully write a merchant_daily_volume row if

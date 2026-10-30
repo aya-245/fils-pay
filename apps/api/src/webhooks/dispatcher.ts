@@ -49,18 +49,29 @@ export type DispatcherConfig = Pick<
   | "webhookBackoffCapMs"
   | "webhookRequestTimeoutMs"
   | "webhookSecretEncryptionKey"
->;
+> &
+  Partial<Pick<Config, "webhookBackoffJitterRatio">>;
 
-/** Exponential backoff with a cap and ±10 % jitter. attemptNumber is the
- *  attempt that just failed (1-indexed). */
+/** Default jitter when a config doesn't carry webhookBackoffJitterRatio. */
+const DEFAULT_BACKOFF_JITTER_RATIO = 0.1;
+
+/**
+ * Exponential backoff with ±`webhookBackoffJitterRatio` jitter (default
+ * ±10 %; loadConfig sets 0 under NODE_ENV=test so retry timing is
+ * deterministic in tests), never above webhookBackoffCapMs. attemptNumber
+ * is the attempt that just failed (1-indexed).
+ */
 export function backoffDelayMs(
   attemptNumber: number,
-  config: Pick<Config, "webhookBackoffBaseMs" | "webhookBackoffCapMs">,
+  config: Pick<Config, "webhookBackoffBaseMs" | "webhookBackoffCapMs"> &
+    Partial<Pick<Config, "webhookBackoffJitterRatio">>,
   jitter: () => number = Math.random,
 ): number {
   const raw = config.webhookBackoffBaseMs * 2 ** (attemptNumber - 1);
   const capped = Math.min(raw, config.webhookBackoffCapMs);
-  return Math.round(capped * (0.9 + jitter() * 0.2));
+  const ratio = config.webhookBackoffJitterRatio ?? DEFAULT_BACKOFF_JITTER_RATIO;
+  if (ratio <= 0) return capped;
+  return Math.min(Math.round(capped * (1 - ratio + jitter() * 2 * ratio)), config.webhookBackoffCapMs);
 }
 
 interface DueEventRow {

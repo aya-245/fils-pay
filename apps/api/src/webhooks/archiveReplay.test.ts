@@ -58,10 +58,14 @@ async function insertDelivery(
   endpointId: string,
   opts: { eventType: string; createdAt: string },
 ): Promise<string> {
+  // Inert outbox event_type (same pattern as routes/admin.test.ts): the
+  // delivery row carries the real event_type; a rollup-eligible type with a
+  // `{}` payload here was replayed by apps/reporting's consumer and aborted
+  // every later pass in a shared test database.
   const outbox = await pool.query<{ id: string }>(
     `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-     VALUES ($1, 'transaction', $2, '{}'::jsonb) RETURNING id`,
-    [opts.eventType, randomUUID()],
+     VALUES ('webhooks.test.archive_fixture', 'transaction', $1, '{}'::jsonb) RETURNING id`,
+    [randomUUID()],
   );
   const outboxEventId = outbox.rows[0]!.id;
 

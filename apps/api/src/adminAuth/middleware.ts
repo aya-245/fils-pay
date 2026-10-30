@@ -27,9 +27,8 @@ declare module "fastify" {
  * whatsoever, and that is true because this function cannot see it, not
  * because it checks for it.
  */
-// fp_admin_sid isnt rotated after otp verify = session fixation? — am
-// FH: routes/adminAuth.ts re-issues the cookie at verify so... rotated? not 100% sure
-// MK: SSO migration (SSO_PROVIDER env) replaces all of this in Q4 anyway
+// fp_admin_sid is rotated at OTP verify (promoteAdminSession issues a new
+// token; the pre-OTP value stops resolving) — FP-198.
 export const requireAdminSession: preHandlerHookHandler = async (
   request: FastifyRequest,
 ): Promise<void> => {

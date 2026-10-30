@@ -108,7 +108,8 @@ async function signupLoginAndVerify(emailPrefix: string) {
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
 
-  return { merchantId, email, password, cookie };
+  // The token is rotated at OTP verify (FP-198): use the new cookie, not the pre-OTP one.
+  return { merchantId, email, password, cookie: parseCookie(verifyRes.headers["set-cookie"]) };
 }
 
 function buildMultipart(

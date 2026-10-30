@@ -28,24 +28,66 @@ export interface WebhookTransportResponse {
 
 export type WebhookTransport = (req: WebhookTransportRequest) => Promise<WebhookTransportResponse>;
 
-/** Real transport: Node's global fetch with an AbortController-driven
- *  timeout, used by index.ts's production wiring. */
-export function createFetchTransport(): WebhookTransport {
+/** Receivers only need to answer 2xx; nothing past this many bytes of the
+ *  response is ever stored (response_body_excerpt keeps 2,000 chars). */
+export const MAX_RESPONSE_BODY_BYTES = 64 * 1024;
+
+export interface FetchTransportOptions {
+  /** Response bytes read before the rest is discarded. Default 64 KiB. */
+  maxResponseBodyBytes?: number;
+}
+
+/**
+ * Reads at most `maxBytes` of the body, then cancels the stream, so a
+ * receiver streaming gigabytes (or never ending the body) cannot exhaust the
+ * API's memory. The caller's abort signal still bounds total time.
+ */
+async function readBodyCapped(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const room = maxBytes - total;
+      const chunk = value.byteLength > room ? value.subarray(0, room) : value;
+      chunks.push(chunk);
+      total += chunk.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Real transport: Node's global fetch, used by index.ts's production wiring.
+ *
+ * - `redirect: "manual"`: a 3xx is returned as-is and the dispatcher records
+ *   it as a failed (non-2xx) attempt. Following redirects would let a
+ *   merchant-registered https URL bounce the signed POST to an internal
+ *   http address (e.g. http://settlement:8091), bypassing the https-only
+ *   check in create.ts (SSRF via open redirect).
+ * - The body read is capped at MAX_RESPONSE_BODY_BYTES.
+ * - The AbortController timeout stays armed until the body has been read,
+ *   so a slow-drip body is bounded by timeoutMs too.
+ */
+export function createFetchTransport(options: FetchTransportOptions = {}): WebhookTransport {
+  const maxBytes = options.maxResponseBodyBytes ?? MAX_RESPONSE_BODY_BYTES;
   return async (req: WebhookTransportRequest): Promise<WebhookTransportResponse> => {
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), req.timeoutMs);
     try {
-      // YA: create.ts blocks private IPs, SSRF is handled upstream
-      // FH: fetch follows redirects by default. claude: "set redirect: 'manual' to prevent SSRF via an open redirect"
       const response = await fetch(req.url, {
         method: "POST",
         headers: req.headers,
         body: req.body,
         signal: controller.signal,
+        redirect: "manual",
       });
-      // unbounded read, a 1gb response would oom us? — am
-      // MK: timeoutMs bounds it. fine for now, revisit after Eid inshallah
-      const body = await response.text();
+      const body = await readBodyCapped(response, maxBytes);
       return { statusCode: response.status, body };
     } catch (err) {
       return {

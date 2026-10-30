@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
-import { runConsumerPass } from "./runConsumerPass.js";
+import { CONSUMER_NAME, runConsumerPass } from "./runConsumerPass.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("refundMatview.new.test.ts requires DATABASE_URL");
@@ -11,7 +11,16 @@ const pool = new Pool({ connectionString: databaseUrl, max: 3 });
 test.after(() => pool.end());
 
 test("matview is populated after a consumer pass applying refund.succeeded", async () => {
-  while ((await runConsumerPass(pool, { consumerBatchLimit: 500 })).processedCount > 0);
+  // Isolation in a shared DB: start from the outbox head instead of replaying
+  // whatever other suites left behind.
+  await pool.query(
+    `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id, updated_at)
+     VALUES ($1, (SELECT COALESCE(MAX(id), 0) FROM outbox_events), now())
+     ON CONFLICT (consumer_name) DO UPDATE
+       SET last_processed_id = GREATEST(reporting_outbox_cursor.last_processed_id, EXCLUDED.last_processed_id),
+           updated_at = now()`,
+    [CONSUMER_NAME],
+  );
   const m = await pool.query<{ id: string }>(
     `INSERT INTO merchants (display_name, mdr_bps) VALUES ($1,250) RETURNING id`,
     [`matview ${randomUUID()}`],

@@ -57,7 +57,20 @@ export async function runConsumerPass(
     let maxId = cursor.lastProcessedId;
     let appliedRefund = false;
     for (const row of eventsResult.rows) {
-      await applyEvent(client, row);
+      // Fail-stop by design (exactly-once, and a money rollup must never
+      // silently drop an event): a row that cannot be applied rolls back the
+      // pass and blocks the cursor until an operator fixes or removes it. The
+      // error names the row so that takes one log line, not a bisect.
+      try {
+        await applyEvent(client, row);
+      } catch (err) {
+        throw new Error(
+          `runConsumerPass: outbox event ${String(row.id)} (${row.event_type}) failed to apply; ` +
+            `pass rolled back, cursor stays at ${cursor.lastProcessedId.toString()}: ` +
+            (err instanceof Error ? err.message : String(err)),
+          { cause: err },
+        );
+      }
       if (row.event_type === "refund.succeeded") appliedRefund = true;
       const rowId = BigInt(row.id);
       if (rowId > maxId) maxId = rowId;

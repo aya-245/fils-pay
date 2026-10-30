@@ -12,6 +12,7 @@ import {
   type AdminRole,
 } from "../adminAuth/sessions.js";
 import { withTransaction } from "../db/withTransaction.js";
+import { createAuthRateLimiters, enforceRateLimit } from "../auth/rateLimit.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
 /**
@@ -52,11 +53,17 @@ interface AdminUserRow {
  * an ordinary merchant dashboard user.
  */
 export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
+  // Same per-IP / per-account brute-force limits as merchant login, with
+  // their own state (a merchant flood never locks staff out, and vice versa).
+  const limits = createAuthRateLimiters(app.config);
+
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const { email, password } = request.body ?? {};
     if (!email || !password) {
       throw new BadRequestError("invalid_request", "email and password are required");
     }
+    enforceRateLimit(reply, limits.loginIp, request.ip);
+    enforceRateLimit(reply, limits.loginAccount, String(email).toLowerCase());
 
     const userResult = await app.db.query<AdminUserRow>(
       `SELECT id, email, role, password_hash FROM admin_users WHERE email = $1 AND status = 'active'`,
@@ -114,6 +121,7 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!code) {
       throw new BadRequestError("invalid_request", "code is required");
     }
+    enforceRateLimit(reply, limits.otpVerifyIp, request.ip);
 
     const rawToken = request.cookies[app.config.adminCookieName];
     if (!rawToken) {
@@ -123,6 +131,7 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!pending || !pending.otpChallengeId) {
       throw new UnauthorizedError("no_pending_session");
     }
+    enforceRateLimit(reply, limits.otpVerifyAccount, pending.adminUserId);
 
     // Spend a guess atomically BEFORE comparing (see claimOtpAttempt).
     const claim = await claimOtpAttempt(app.db, "admin_otp_challenges", pending.otpChallengeId);
@@ -138,23 +147,27 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new UnauthorizedError("invalid_code");
     }
 
-    const { adminUser } = await withTransaction(app.db, async (client) => {
+    const { adminUser, rotatedToken } = await withTransaction(app.db, async (client) => {
       if (!(await consumeOtpChallenge(client, "admin_otp_challenges", claim.id))) {
         throw new GoneError("otp_expired");
       }
-      await promoteAdminSession(client, pending.adminSessionId, app.config.adminSessionTtlHours);
+      // Rotates the token: the pre-OTP cookie value is dead from here on (FP-198).
+      const promoted = await promoteAdminSession(client, pending.adminSessionId, app.config.adminSessionTtlHours);
+      if (!promoted) {
+        throw new UnauthorizedError("no_pending_session");
+      }
       const result = await client.query<{ role: AdminRole }>(
         `SELECT role FROM admin_users WHERE id = $1`,
         [pending.adminUserId],
       );
-      return { adminUser: result.rows[0] };
+      return { adminUser: result.rows[0], rotatedToken: promoted.rawToken };
     });
     if (!adminUser) {
       throw new Error("admin otp/verify: admin_users row disappeared mid-transaction");
     }
 
-    // Browser lifetime matching the promoted session.
-    reply.setCookie(app.config.adminCookieName, rawToken, {
+    // New token, browser lifetime matching the promoted session.
+    reply.setCookie(app.config.adminCookieName, rotatedToken, {
       httpOnly: true,
       path: "/",
       sameSite: "lax",
