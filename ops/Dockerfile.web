@@ -1,8 +1,12 @@
 # Static vite build of apps/web or apps/admin served by nginx.
-# docker build -f ops/Dockerfile.web --build-arg APP=web --build-arg API_URL=https://api.example.com .
+# nginx also reverse-proxies /api/* to the API service, so the browser talks to
+# the API same-origin: the API sends no CORS headers, so a cross-origin
+# VITE_API_BASE_URL (e.g. :8080 -> :3000) fails in real browsers (preflight 404),
+# and the session cookie stays first-party.
+# docker build -f ops/Dockerfile.web --build-arg APP=web --build-arg WEB_URL=https://pay.example.com .
 FROM node:22-bookworm-slim AS build
 ARG APP=web
-ARG API_URL=http://localhost:3000
+ARG API_URL=/api
 ARG WEB_URL=http://localhost:5173
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -19,6 +23,8 @@ RUN npm run build -w apps/$APP
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 ARG APP=web
+# API_UPSTREAM: where /api/* goes (compose service name by default).
+ENV API_UPSTREAM=api:3000
 COPY --from=build /app/apps/$APP/dist /usr/share/nginx/html
-RUN printf 'server {\n listen 8080;\n root /usr/share/nginx/html;\n location / { try_files $uri /index.html; }\n}\n' > /etc/nginx/conf.d/default.conf
+COPY ops/nginx-web.conf.template /etc/nginx/templates/default.conf.template
 EXPOSE 8080

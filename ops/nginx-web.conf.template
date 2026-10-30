@@ -1,0 +1,47 @@
+# Rendered by the nginx image entrypoint (envsubst) into conf.d/default.conf.
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    # Docker's embedded DNS; resolving per request means nginx starts even if
+    # the API container is restarting, and follows it to its new address.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $api_upstream ${API_UPSTREAM};
+
+    client_max_body_size 12m;   # KYC uploads (API caps file size itself)
+
+    location /api/ {
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$api_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        # API down/restarting: fail fast with a 503 the apps can show.
+        proxy_next_upstream off;
+        error_page 502 504 =503 /api-unavailable.json;
+    }
+
+    location = /api-unavailable.json {
+        internal;
+        default_type application/json;
+        add_header Retry-After 5 always;
+        return 503 '{"error":"service_unavailable"}';
+    }
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+        add_header Cache-Control "no-cache";
+        try_files $uri /index.html;
+    }
+}
