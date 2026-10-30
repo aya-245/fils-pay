@@ -166,7 +166,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         status,
       }));
 
-      reply
+      return reply
         .header("content-type", "text/csv; charset=utf-8")
         .header("content-disposition", 'attachment; filename="transactions.csv"')
         .send(csv);

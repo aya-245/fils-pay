@@ -105,7 +105,8 @@ test("a valid CSV upload returns 201 and applies every row", async () => {
 
   const body = res.json() as { importId: string; rowCount: number; totalPostedFils: number };
   assert.equal(body.rowCount, 2);
-  assert.equal(body.totalPostedFils, 600);
+  // 4.75 + 1.25 BD = 6.000 BD = 6000 fils (ADR-0001: 1 BD = 1000 fils).
+  assert.equal(body.totalPostedFils, 6000);
 
   const rows = await pool.query<{ n: string }>(
     `SELECT COUNT(*)::text AS n FROM adjustment_import_rows WHERE adjustment_import_id = $1`,

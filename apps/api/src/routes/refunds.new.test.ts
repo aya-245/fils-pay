@@ -277,7 +277,8 @@ test("admin impersonation (even super_admin, which maps to owner) is refused", a
     payload: { transactionId: txnId },
   });
   assert.equal(res.statusCode, 403, res.body);
-  assert.equal(res.json().error, "impersonation_read_only");
+  // requireMerchantAuth refuses every impersonation write before the handler runs.
+  assert.equal(res.json().error, "forbidden");
   assert.equal((await counts(txnId)).refunds, 0);
 });
 
