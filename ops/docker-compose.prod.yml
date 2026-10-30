@@ -95,6 +95,7 @@ services:
     command: ["node", "--import", "tsx", "apps/api/src/index.ts"]
     environment:
       NODE_OPTIONS: --max-old-space-size=384
+      LOG_LEVEL: ${API_LOG_LEVEL:-warn}
       # Pool sizing / load shedding (apps/api/src/config.ts, docs/CAPACITY.md).
       # Every admitted pay holds 2 connections (link lock + authorize/capture),
       # so PG_POOL_MAX must stay >= 2 * API_MAX_INFLIGHT_PAY + a few for reads.
@@ -149,6 +150,9 @@ services:
     memswap_limit: 96m
     restart: always
     init: true
+    # SIGTERM cancels the daemon's context; an in-flight CloseBatch either
+    # commits or rolls back. Give it time to finish instead of SIGKILL at 10 s.
+    stop_grace_period: 60s
     logging: *logging
     depends_on:
       postgres:

@@ -47,7 +47,9 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
     typeof config.trustProxy === "number"
       ? (_address: string, hop: number) => hop < (config.trustProxy as number) // trust N hops
       : config.trustProxy;
-  const app = Fastify({ logger: true, trustProxy });
+  // LOG_LEVEL=warn in production: two info lines per request cost CPU and
+  // dockerd I/O on the 0.5 vCPU API (docs/CAPACITY.md).
+  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, trustProxy });
 
   app.decorate("db", pool);
   app.decorate("config", config);
