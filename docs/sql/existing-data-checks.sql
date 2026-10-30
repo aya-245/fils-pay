@@ -33,7 +33,7 @@ HAVING SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE -amount_fils END)
 SELECT authenticated, COUNT(*) AS live_sessions
   FROM sessions
  WHERE revoked_at IS NULL AND expires_at > now()
-   AND created_at < TIMESTAMPTZ '2026-10-30 16:28:46+03'   -- DEPLOY_CUTOFF a54e058
+   AND created_at < TIMESTAMPTZ '2026-10-30 16:28:46+03'   -- DEPLOY_CUTOFF 42bacc0
  GROUP BY authenticated;
 
 \echo '== F-02: sessions of users whose email exists under more than one merchant (cross-tenant login candidates) =='
@@ -47,7 +47,7 @@ SELECT s.id AS session_id, s.created_at, s.authenticated, mu.email, mu.merchant_
 \echo '== F-03: acquirer callback notes saved while signatures were optional (review fraud verdicts) =='
 SELECT n.callback_type, n.outcome, COUNT(*) AS notes, MIN(n.received_at) AS first_seen, MAX(n.received_at) AS last_seen
   FROM acquirer_callback_notes n
- WHERE n.received_at < TIMESTAMPTZ '2026-10-30 15:22:16+03'  -- DEPLOY_CUTOFF cef68d1
+ WHERE n.received_at < TIMESTAMPTZ '2026-10-30 15:22:16+03'  -- DEPLOY_CUTOFF 118625a
  GROUP BY n.callback_type, n.outcome;
 
 \echo '== F-04: refunds created by an actor (API key / session) of a different merchant =='
@@ -330,7 +330,7 @@ SELECT old.id AS old_key_id, old.merchant_id, old.key_prefix, newk.created_at AS
 SELECT merchant_id, COUNT(*) AS open_links, MIN(created_at) AS oldest
   FROM payment_links
  WHERE status IN ('active', 'reserved') AND expires_at > now()
-   AND created_at < TIMESTAMPTZ '2026-10-30 15:17:07+03'   -- DEPLOY_CUTOFF ae8d95c
+   AND created_at < TIMESTAMPTZ '2026-10-30 15:17:07+03'   -- DEPLOY_CUTOFF a131847
  GROUP BY merchant_id;
 
 \echo '== F-41: deliveries rejected by receivers with a 4xx (FP-240 signature mismatch candidates) =='
@@ -393,7 +393,7 @@ SELECT le.merchant_id, COUNT(DISTINCT le.entry_group_id) AS discount_groups, SUM
   FROM ledger_entries le
  WHERE le.description = 'capture: negotiated discount adjustment'
    AND le.account_id = 'platform_fee_revenue' AND le.direction = 'debit'
-   AND le.created_at < TIMESTAMPTZ '2026-10-30 16:08:14+03'   -- DEPLOY_CUTOFF 5ac1ccc
+   AND le.created_at < TIMESTAMPTZ '2026-10-30 16:08:14+03'   -- DEPLOY_CUTOFF 19e8f00
  GROUP BY le.merchant_id;
 
 \echo '== F-54: refund status out of step with amounts, or a hold still active on a fully refunded payment =='
