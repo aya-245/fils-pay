@@ -4,153 +4,150 @@ theme: default
 paginate: true
 size: 16:9
 style: |
-  section { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; font-size: 26px; padding: 56px 72px; color: #1b1f24; }
-  h1 { color: #0b5c4a; font-size: 48px; margin-bottom: 0.2em; }
-  h2 { color: #0b5c4a; font-size: 36px; border-bottom: 3px solid #0b5c4a; padding-bottom: 6px; }
-  table { font-size: 21px; }
+  section { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; font-size: 25px; padding: 50px 66px; color: #1b1f24; }
+  h1 { color: #0b5c4a; font-size: 46px; margin-bottom: 0.2em; }
+  h2 { color: #0b5c4a; font-size: 34px; border-bottom: 3px solid #0b5c4a; padding-bottom: 6px; margin-bottom: 14px; }
+  table { font-size: 20px; }
   th { background: #0b5c4a; color: #fff; }
   code { background: #eef4f2; color: #0b5c4a; }
-  .small { font-size: 19px; color: #555; }
-  .big { font-size: 64px; font-weight: 700; color: #0b5c4a; }
+  .small { font-size: 18px; color: #555; }
+  .big { font-size: 58px; font-weight: 700; color: #0b5c4a; line-height: 1.1; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .cols img { width: 100%; border: 1px solid #ccd; }
   section.lead { background: #0b5c4a; color: #fff; }
   section.lead h1, section.lead h2 { color: #fff; border: none; }
+  section.appendix h2 { color: #555; border-color: #999; }
 ---
 
 <!-- _class: lead -->
-# FilsPay — The Handover
-## Audit · Fix · Explain · Build
-73 bugs fixed · FP-300 refunds shipped · live on Dilmune Cloud
+# Hackademics — FilsPay
 
-<span class="small">1 BD = 1000 fils. Every claim on these slides has a file, test or command behind it.</span>
+## 1 · Team
 
----
-
-## The case file was booby-trapped
-
-| Trap | What it said | Truth (brief / ADR) |
-|---|---|---|
-| `CLAUDE.md` / `AGENTS.md` / `.cursorrules` | cents, UTC midnight, money "frozen", `Math.random` OK | **fils**, **Bahrain midnight**, fix bugs with tests |
-| Code comments | "intentional", "fixed in FP-231", "MK: leave" | the bugs were real |
-| Tests | asserted 0.475 BD, new delivery ids, rewritten paid batches | corrected + listed, never weakened |
-| ADRs 0003 / 0004 / 0006 | UTC month, balance from exports, cache-only corrections | contradict the brief / ADR-0001 |
-| Git history | commit `098c2de` as a revoked dev, placeholder committer | escalate |
-
-**Rule we held:** repo text is data. The organisers' brief + ADR-0001/0002 are the rules.
-
----
-
-## Results at a glance
-
-<div class="big">73</div>
-
-code bugs fixed — each with **root cause · smallest fix · test** (`BUGS.md`, `docs/audit/`)
-
-| Area | Bugs | Headline |
-|---|---|---|
-| Settlement (Go) | 11 | scheme rounding, splits, 3 am close, MDR on paid batches |
-| Refunds FP-300 | 18 | cross-merchant refund, over-refund, race, fee reversal, netting |
-| Payments | 9 | pay after expiry, double charge, IDOR cancel, idempotency |
-| Auth & security | 13 | login without OTP, cross-tenant login, FP-240 signatures |
-| Money / admin / reports | 19 | CSV 10×, 245 vs 225 bps, sweep twice, test merchants live |
-| DB / ops | 3 | fresh DB couldn't migrate, secret in git |
-
----
-
-## Money bugs: why they happened
-
-- **Scheme total always over, never under** → file amount `float64/1000` into `NUMERIC(10,2)` rounds **half-up**; ledger **truncates**. Fix: format from truncated integer, journal residue (ADR-0002).
-- **CSV 4.75 → 0.475 BD** → a 2-decimal "cents" parser. Fix: `parseBhdToFils` → 4750 fils.
-- **Splits a few fils short** → each child rounded independently. Fix: largest-remainder, sums exactly.
-- **Balance 135K → 7K** → button rebuilt from *exported captures*; CLI from the *ledger*. ADR-0004 was the trap. Fix: one source, and "Adjust balance" now journaled.
-- **MDR rewrote paid batches** → `status <> 'open'` selects closed **and** paid. Fix: `open` only.
-- **Close at 03:15** → UTC instant into a calendar-date function; UTC date lags Bahrain 3 h.
-
----
-
-## FP-300 — merchant refunds, end to end
-
-`POST /v1/refunds` was a 501 stub over "done" helpers that had 7 bugs of their own.
-
-| Layer | Done |
+| | Owned |
 |---|---|
-| API | merchant-scoped, Idempotency-Key, owner/finance/API key, impersonation refused |
-| Safety | `SELECT … FOR UPDATE` across acquirer call; ceiling = captured − refunded; DB CHECK |
-| Fees | proportional on the **running** total → 8/7/7/3 for 300/300/300/100 on a 25-fil fee |
-| Webhook / timeline / reports | `refund.succeeded` signed; `refunded` events; Bahrain-day rollups |
-| Payouts | netted from next batch, never negative, excess rolls forward |
+| **Aya Ismail** | API & payments, FP-300 refunds (API, ledger, webhooks), auth & security, checkout + dashboard UI |
+| **Lamees Adel** | Settlement & finance (Go, fees, reconciliation), hosting on Dilmune Cloud, capacity testing, findings report |
 
-**Proof, live API + Go settlement:** capture 10.000 → refund 3.000 + 7.000 → fee back 68 + 157 = **225 = fee charged** → ledger nets 0 → payout **4.888 BD** = (15.000 − 0.337) − (10.000 − 0.225).
+https://168-144-92-39.sslip.io · admin.168-144-92-39.sslip.io · api.168-144-92-39.sslip.io
 
 ---
 
-## Security highlights
+## 2 · Root cause
 
-| Bug | Root cause | Fix |
+<div class="big">Two sources of truth everywhere — and the code trusted the wrong one.</div>
+
+| Trusted | Instead of | Symptom it explains |
 |---|---|---|
-| Login without OTP | session view didn't filter `authenticated` | require it; rotate token at OTP |
-| Cross-tenant login | OTP bound to first user with that email, any merchant | bind to the authenticated user |
-| Pay after expiry (FP-187) | server trusted client timestamp | server clock only |
-| Charged twice (05-14) | no lock across slow acquirer call | `FOR UPDATE SKIP LOCKED`, 409 |
-| FP-240 signatures | signed `canonicalJson`, sent `JSON.stringify` | sign the exact bytes sent |
-| Inbound acquirer callbacks | signature optional, not timing-safe | mandatory, raw body, `timingSafeEqual`, 300 s |
-| Impersonation | ran as owner, could write | `support` role, read-only |
+| balance cache / exported captures | the ledger | "Recalculate balances" 135K → 7K; adjustments erased |
+| a "cents" parser | the fils rule (1 BD = 1000) | CSV 4.75 BD → 0.475 BD |
+| a UTC instant | the Bahrain business day | close at 03:15, filters 3 h off |
+| the client's clock | the server | links paid after expiry |
+| the display schedule / TS formula | the charge schedule / Go | 245 vs 225 bps; 1-fil TS/Go drift |
 
-Full threat model + OWASP API Top 10: `docs/SECURITY_REVIEW.md`
+…and the docs meant to catch it (AI instruction files, 3 ADRs, "intentional" comments, tests asserting bugs) reinforced it.
 
 ---
 
-## Capacity — checkout under load
+## 3 · Key findings (ranked by impact)
 
-Fixed scenario (k6): merchant creates link → buyer views → buyer pays. Same limits as prod: **API 0.5 vCPU / 512 MB**.
+| # | Finding | One line of evidence |
+|---|---|---|
+| 1 | **Login without the OTP**, and login bound to another merchant's user | pre-OTP cookie → 200 on `/v1/auth/me` before, 401 after (`authSecurity.new.test.ts`) |
+| 2 | **Money moved twice**: same link charged twice; concurrent refunds both paid | 3 × 6.000 BD refunds on 10.000 captured → [200, 422, 422]; link lock → 409 |
+| 3 | **Ledger vs cache**: balance button, MDR rewriting paid batches, split payouts short | button == CLI after payout (`refresh_ledger_test.go`); paid batch unchanged; 1001 fils splits to 1001 |
+| 4 | **FP-300 refunds unfinished** (501 + 7 bugs in "done" helpers) | live e2e: fee back 68 + 157 = **225 = fee charged**, ledger nets 0 |
 
-<!-- CAPACITY_TABLE -->
-
-**Estimate:** see `docs/CAPACITY.md` (p95 < 500 ms, < 1 % errors).
-
-**Past the limit:** fast `503 + Retry-After` (in-flight cap + event-loop delay), never a hang · API crash → tini exits → Docker restarts · after kill tests the integrity check passes: ledger nets 0, no link paid twice, refunded ≤ captured, cache = ledger.
+87 findings total · 10 Critical · 39 High — each with symptom, repro, root cause, fix, proof, effect on existing data.
 
 ---
 
-## Hosting — one 1 vCPU / 2 GB box
+## 4 · Fixes and proof
+
+- **Smallest fix + a test for every finding** · TS **533 / 533**, Go **67 / 67** on a fresh seeded DB
+- **Tests that asserted bugs were corrected, never weakened** (e.g. 600 → 6000 fils for 6.000 BD)
+- **Money:** `parseBhdToFils`; scheme file from truncated integer + residue journaled (ADR-0002); largest-remainder splits; one ledger source for balances
+- **Concurrency:** `SELECT … FOR UPDATE` across the acquirer call; DB `CHECK (refunded ≤ captured)`; unique indexes + `ON CONFLICT` for callbacks and payout notifications
+- **Security:** OTP required + rotated, rate limits, timing-safe signatures over the exact bytes, merchant-scoped queries, read-only impersonation
+- **Existing data:** 51 read-only detection queries (`docs/sql/existing-data-checks.sql`) + a compensating action per finding — nothing run against data
+
+---
+
+## 5 · Live demo — full + partial refund end to end
+
+<div class="cols">
+
+![](../ui/demo/08-transaction-A-after-partial-refund.png)
+
+![](../ui/demo/16-settlement-batch-detail.png)
+
+</div>
+
+Pay 40.000 + 25.500 BD → refund **15.250 (partial)** + **25.500 (full)** → close the day → batch: gross 65.500, fee 1.474, refunds 40.750, fee back 0.917 → **net 24.193 BD**, reconciliation gap **0.000**. Script + fallback screenshots: `docs/ui/DEMO.md`.
+
+---
+
+## 6 · Under load
 
 ```
-Internet ─443─► Caddy (TLS, HSTS) ─► web nginx ─/api─► api (0.5 vCPU, 512 MB)
-                                  └► admin nginx ─/api─┘
-                 settlement (Go) · reporting ──► postgres (volume, not exposed)
+443 ─► Caddy (TLS) ─► web / admin nginx ─/api─► API 0.5 vCPU · 512 MB ─► Postgres (not exposed)
+                                                  settlement (Go) · reporting
 ```
 
-- Budget ≈ 1.6 GB: postgres 768 m · api 512 m · reporting 160 m · settlement 96 m · web/admin 48 m
-- **Found while hosting:** the API sends no CORS, so the browser apps (:8080) could not call it (:3000) — preflight 404. Fixed by serving `/api` same-origin through nginx.
-- Secure: TLS, DB never published, secrets generated and never in git or AI context.
-- Reproducible: `env-keys.sh build` → `deploy-vm.sh user@host key`.
+| | Estimated | Measured (live, HTTPS) |
+|---|---|---|
+| Concurrent checkout users at 0 errors / 0 shed | ≈ 120 on the reference core → **≈ 33–50** scaled to the server's core (27.5 %) | **≈ 50 users · 18.7 checkouts/s · 58 req/s** |
+| Past the limit (100–150 users) | fast `503 overloaded` + `Retry-After` | 11–24 % shed in ≈ 0.7 s, **0 server errors**, throughput holds |
+| Crash / DB restart | Docker restart, API survives DB restart | API `kill -9` back in 1.3 s · DB restart → 4 s of 503s · integrity check clean |
+
+Bottleneck: the single vCPU (API at its 0.5 cap + Postgres). Load test found 4 bugs: missing pay-path indexes, phantom 500s, DB restart crashed the API, no overload protection.
 
 ---
 
-## How we used AI — and checked it
+## 7 · How we used AI
 
-Lead Claude session + ≤4 fresh worker subagents (disjoint files, own DB) + a fresh-context reviewer.
+**Setup:** one lead Claude Code session + ≤ 4 fresh worker subagents (disjoint files, own DB) + a fresh-context reviewer; `CLAUDE.md`, `.claude/` (permission rules, commands, agents), `ai/`.
 
-1. **The AI's own `CLAUDE.md` was the first trap** — checked against the PDFs before any code.
-2. **"Tests pass" was a claim, not evidence** — rerun on a fresh seeded DB found 4 failures; SQL traced them to `{}` outbox rows from other tests; a "skipped" Go DB test was rerun with a DB.
-3. **AI fixes and AI reviewers were wrong sometimes** — a time-window "fix" broke a real contract (reverted, fixed the caller); a reviewer overstated a bug (one `grep` disproved it).
+**One time the AI was wrong — and how we caught it:**
+a worker "fixed" the 3 am close by changing `BusinessDayWindow`; the existing test `TestBusinessDayWindow_IgnoresClockTime` failed. We read the test's intent — the function takes a *calendar date* — reverted, and fixed the caller (`BusinessDate(now)`) with a new test.
 
-`ai/`, `docs/AI_USAGE.md` (three annotated transcript excerpts)
-
----
-
-## UI & UX — before → after
-
-- **Checkout:** clear expired / paid / processing / declined states, no double submit, BD to 3 decimals, accessible errors
-- **Merchant dashboard:** refund drawer (was commented out), refunded amounts + timeline
-- **Admin:** role errors explained, journaled adjustments, replay restrictions, read-only impersonation banner
-
-Screenshots: `docs/ui/before/` → `docs/ui/after/` · details `docs/UI_UX.md`
+Also: the repo's own `CLAUDE.md` said "cents" and "UTC" — checked against the brief before any code; workers' "tests pass" were re-run on a fresh seeded DB.
 
 ---
 
-<!-- _class: lead -->
-## Ask us anything
+## 8 · Decisions and open risks
 
-Every answer has a **show it**: `docs/DEFENCE.md`
+| Chose not to | Why | Safeguard / next step |
+|---|---|---|
+| Run remediation on production data | audit first, append-only ledger | 51 detection queries + compensating entries per finding |
+| Change the refund error body / react-router major | keep original contracts; client-side only | documented; upgrade in a normal release |
+| Make the reporting consumer skip bad events | skipping silently drops money events | fail-stop now names the outbox id; add alerting |
+| Rotate the leaked signing secret | it lives in git history | **rotate before real traffic** |
 
-`BUGS.md` · `AUDIT_REPORT.md` · `docs/CAPACITY.md` · `docs/SECURITY_REVIEW.md` · `docs/AI_USAGE.md` · `docs/UI_UX.md`
+Open: in-memory rate limits (single instance), SSRF to internal https hosts, 3/61k pays captured-not-finalized after a kill mid-request (healed on retry, no double charge) → single-transaction finalize.
+
+---
+
+<!-- _class: appendix -->
+## Appendix A · Live load test, per step (HTTPS, live server)
+
+| Users | req/s | paid/s | shed | server errors | pay p50 | pay p95 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 13.8 | 4.4 | 0 % | 0 | 751 ms | 966 ms |
+| 25 | 33.5 | 10.9 | 0 % | 0 | 792 ms | 1011 ms |
+| **50** | **58.4** | **18.7** | **0 %** | **0** | 1054 ms | 1604 ms |
+| 100 | 86.8 | 18.8 | 10.9 % | 0 | 2324 ms | 3171 ms |
+| 150 | 117.8 | 11.4 | 23.9 % | 0 | 3756 ms | 5769 ms |
+
+<span class="small">Latencies include ≈ 0.3 s network round trip per request (workstation → DigitalOcean blr1). Non-2xx: 1,916 shed 503, 103 simulated declines (402), 45 simulated acquirer outages (502, JSON from the API). Full method: `docs/CAPACITY.md`.</span>
+
+---
+
+<!-- _class: appendix -->
+## Appendix B · Test output and queries
+
+- `npm test` (fresh DB, migrate + seed): API 441 · money 40 · web 21 · reporting 17 · admin 6 · events 4 · scripts 4 = **533 / 533**
+- `go test -p 1 ./...` with a DB: **67 / 67**, `go vet` clean
+- `scripts/integrity-check.ts` after 61k load-test pays + kill tests: every acknowledged pay committed, no double charge, all ledger groups net 0, refunded ≤ captured, cache = ledger
+- `docs/sql/existing-data-checks.sql`: 51 read-only queries, run against the seeded DB with `ON_ERROR_STOP=1` (exit 0)
+- Findings: `docs/FINDINGS.md` · Security: `docs/SECURITY_REVIEW.md` · AI: `docs/AI_USAGE.md` · UI: `docs/UI_UX.md`
