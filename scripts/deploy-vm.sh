@@ -46,3 +46,5 @@ remote 'sudo docker image prune -f >/dev/null'
 
 echo "== smoke"
 remote 'curl -fsS http://localhost:3000/healthz && echo " api healthz ok"' || echo "api healthz FAILED — check: $dc logs api"
+remote 'curl -fsS -o /dev/null http://localhost:8080/ && echo "web ok"' || echo "web FAILED — check: $dc logs web"
+remote 'curl -fsS -o /dev/null http://localhost:8081/ && echo "admin ok"' || echo "admin FAILED — check: $dc logs admin"
