@@ -22,7 +22,10 @@ const HSTS_VALUE = "max-age=31536000; includeSubDomains";
  * must never sit in a shared or browser cache.
  */
 export const securityHeaders = fp<SecurityHeadersOptions>(async (app: FastifyInstance, opts) => {
-  app.addHook("onSend", async (request, reply, payload) => {
+  // Callback-style on purpose, not `async`: many handlers call reply.send()
+  // without `return reply`, and with more than one async onSend hook Fastify
+  // re-sent those replies (ERR_HTTP_HEADERS_SENT + a phantom 500 per request).
+  app.addHook("onSend", (request, reply, payload, done) => {
     reply.header("x-content-type-options", "nosniff");
     reply.header("x-frame-options", "DENY");
     reply.header("content-security-policy", "default-src 'none'; frame-ancestors 'none'; sandbox");
@@ -34,6 +37,6 @@ export const securityHeaders = fp<SecurityHeadersOptions>(async (app: FastifyIns
     if (request.url.startsWith("/v1/") && !reply.hasHeader("cache-control")) {
       reply.header("cache-control", "no-store");
     }
-    return payload;
+    done(null, payload);
   });
 });
