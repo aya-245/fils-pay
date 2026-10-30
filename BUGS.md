@@ -1,7 +1,7 @@
 # FilsPay — bugs found (short list)
 
-**87 findings fixed.** The 73 listed below came from the audit and second review. 14 more came from
-security hardening, load testing, hosting and the final review:
+**93 findings fixed.** The 73 listed below came from the audit and second review. 20 more came from
+security hardening, load testing, hosting and the final review, including:
 - session fixation;
 - login brute force;
 - proxy client IP;
@@ -15,11 +15,16 @@ security hardening, load testing, hosting and the final review:
 - a Postgres restart crashing the API;
 - missing pay-path indexes;
 - no load shedding;
-- no OTP delivery in production.
+- no OTP delivery in production;
+- the pay cap bypassed with an encoded path;
+- unbounded login inputs (rate-limiter memory DoS);
+- Caddy marking the only API upstream down after one failure;
+- checkout claiming "not charged" when the outcome was unknown;
+- the deploy guard reading the time as octal.
 
 Separately there are **25 misleading AI-instruction findings** and **1 tampered commit**.
 Every finding is in the required format (symptom, how found, root cause, fix, verification, existing data) in
-**`docs/FINDINGS.md`** (F-01…F-87).
+**`docs/FINDINGS.md`** (F-01…F-93; the 20 later ones are marked **new**).
 
 ## Settlement — Go (`apps/settlement`) · 11
 1. Scheme file rounded up, our ledger truncated → scheme total always a few fils over (`scheme_export.go`, `batch.go`)

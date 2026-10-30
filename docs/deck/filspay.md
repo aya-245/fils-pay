@@ -58,7 +58,7 @@ https://168-144-92-39.sslip.io · admin.168-144-92-39.sslip.io · api.168-144-92
 | 3 | **Ledger vs cache**: balance button, MDR rewriting paid batches, split payouts short | button == CLI after payout (`refresh_ledger_test.go`); paid batch unchanged; 1001 fils splits to 1001 |
 | 4 | **FP-300 refunds unfinished** (501 + 7 bugs in "done" helpers) | live e2e: fee back 68 + 157 = **225 = fee charged**, ledger nets 0 |
 
-87 findings total · 10 Critical · 39 High — each with symptom, repro, root cause, fix, proof, effect on existing data.
+93 findings total · 10 Critical · 40 High — each with symptom, repro, root cause, fix, proof, effect on existing data.
 
 ---
 

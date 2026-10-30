@@ -14,8 +14,8 @@
 
 ## 1. Summary
 
-**What we found.** FilsPay reached us half-finished and deliberately misleading. We recorded **87 findings**
-(10 Critical, 39 High, 35 Medium, 3 Low), plus 25 false agent instructions and one tampered commit.
+**What we found.** FilsPay reached us half-finished and deliberately misleading. We recorded **93 findings**
+(10 Critical, 40 High, 38 Medium, 5 Low), plus 25 false agent instructions and one tampered commit.
 
 - **Money bugs:**
   - a 2-decimal "cents" parser made CSV imports 10× too small;

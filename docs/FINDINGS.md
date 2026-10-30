@@ -21,8 +21,8 @@ Conventions:
   fixed button), and the merchant is told when a payout or statement changes. None of the remediations below was
   run. See "Decisions and open risks".
 
-Counts: 87 findings (all 73 from `BUGS.md` plus 14 new ones) and 2 test-infrastructure faults. Severity:
-10 Critical, 39 High, 35 Medium, 3 Low.
+Counts: 93 findings (all 73 from `BUGS.md` plus 20 new ones, marked **new**) and 2 test-infrastructure faults. Severity:
+10 Critical, 40 High, 38 Medium, 5 Low.
 
 ---
 
@@ -818,6 +818,62 @@ BUGS #44 · RV-10
 - **Fix:** `plugins/securityHeaders.ts`: `nosniff`, `X-Frame-Options: DENY`, a strict CSP, `Referrer-Policy: no-referrer`, COOP, `Cache-Control: no-store` on `/v1`, and HSTS when `COOKIE_SECURE` or https (`a54e058`). Made callback-style in `98ae37a` (F-81).
 - **Verified:** `authHardening.new.test.ts` "security headers on API responses…", "session cookies are HttpOnly + SameSite=Lax…".
 - **Existing data:** None. Runtime only.
+
+### Found while hosting and in the final pre-submission review
+
+### F-88 · No one could log in to the deployed dashboard or admin console (High)
+**new** · hosting
+- **Symptom:** On the live server the OTP step could never be completed. Judges and the team couldn't reach the merchant dashboard or the admin console.
+- **Found / reproduced:** We prepared demo logins for the cover page. `auth/notifier.ts` and `adminAuth/notifier.ts` only *log* the OTP, and only outside production. There is no email or SMS provider, and `OTP_DEV_EXPOSE` is off in production, so the code was delivered nowhere.
+- **Root cause:** OTP delivery was never built. Development relied on the code appearing in logs or responses.
+- **Fix:** `OTP_DEMO_EMAIL_DOMAINS` (`config.ts` `shouldExposeOtp`) returns the code on screen only for seeded accounts on allow-listed domains. Anything outside the reserved `.example`/`.test`/`.invalid`/`.localhost` TLDs is rejected at boot, so real customers keep full two-factor login (`69fa69d`).
+- **Verified:** `auth/demoOtp.new.test.ts` (domain matching, suffix tricks rejected, `gmail.com` rejected at boot). Live: demo merchant and admin logins return the code over HTTPS.
+- **Existing data:** None.
+
+### F-89 · Pay concurrency cap bypassed with an encoded path (Medium)
+**new** · final review
+- **Symptom:** None observed. A flood of `POST /v1/payment-links/T/%70ay` reached the pay handler but skipped the pay cap and queue, so it could exhaust the DB pool.
+- **Found / reproduced:** Fresh-context review of the load-shedding plugin. The router decodes `%70` to `p`, but the shedding group matched the raw URL.
+- **Root cause:** `plugins/loadShedding.ts` matched `request.url`, not the routed pattern.
+- **Fix:** Match `request.routeOptions.url` (`/v1/payment-links/:token/pay`), falling back to the raw path (`cdf5c23`).
+- **Verified:** `loadShedding.new.test.ts` and the payment-link route tests (86/86 in the affected suites); full suite 536/536.
+- **Existing data:** None.
+
+### F-90 · Login inputs unbounded: rate-limiter memory DoS (Medium)
+**new** · final review
+- **Symptom:** None observed. Each distinct "email" up to the 1 MiB body limit became a limiter key, up to 100k keys, which is enough to OOM the 512 MB API from a few IPs.
+- **Found / reproduced:** Review of `auth/rateLimit.ts` keying (`auth.ts`, `adminAuth.ts` login).
+- **Root cause:** The per-account key was the raw, unvalidated email. Passwords were also unbounded before argon2.
+- **Fix:** Login and admin login reject non-string or over-long values (email > 320, password > 1024, merchantId > 64) with the existing `400 invalid_request` before the limiter (`cdf5c23`).
+- **Verified:** Auth and admin suites; full suite 536/536.
+- **Existing data:** None.
+
+### F-91 · Caddy marked the only API upstream down after one failed request (Medium)
+**new** · final review (our own config)
+- **Symptom:** Under load, a single failed proxied request would have made every API request through `api.…sslip.io` fail for about 5 s.
+- **Found / reproduced:** Review of `ops/Caddyfile`: `fail_duration 5s` with the default `max_fails 1` on a single upstream.
+- **Root cause:** We copied a multi-upstream passive health check into a single-upstream setup.
+- **Fix:** Removed the passive health check (the API sheds load itself and Docker restarts it). Caddy also gets 128 MB + `GOMEMLIMIT`, up from 64 MB, after it used about 40 MB in the live load test (`cdf5c23`).
+- **Verified:** `caddy validate`; live redeploy; the HTTPS hosts serve.
+- **Existing data:** None.
+
+### F-92 · Checkout said "you have not been charged" when the outcome was unknown (Low)
+**new** · final review
+- **Symptom:** After a network error, a 5xx or a proxy timeout, the shopper was told they had not been charged, even though the capture may already have happened.
+- **Found / reproduced:** Review of `CheckoutPage.tsx` error mapping.
+- **Root cause:** Every unclassified error fell through to the "declined, not charged" message.
+- **Fix:** Only `overloaded` (shed before the handler) and 402/502 keep "not charged". Unknown 5xx and network failures go to the "check payment status" screen, which re-reads the link. The link lock prevents a second charge (`cdf5c23`).
+- **Verified:** Web suite 21/21; typecheck.
+- **Existing data:** None.
+
+### F-93 · Deploy guard read the time as octal (Low)
+**new** · final review (our own script)
+- **Symptom:** `deploy-vm.sh` would have allowed a deploy at 00:08, 00:09, 00:18, 00:19, … during the settlement close window, and printed errors between 08:00 and 09:59.
+- **Found / reproduced:** Review of `[[ $bahrain_hm -lt 0045 ]]`. Bash treats `0045` and `0008` as octal.
+- **Root cause:** A zero-padded `HHMM` compared arithmetically without forcing base 10.
+- **Fix:** `(( 10#$bahrain_hm < 45 ))`. The script also refuses a dirty tree, so `DEPLOYED_COMMIT` matches the build (`cdf5c23`).
+- **Verified:** `bash -n`; manual check of the boundary values.
+- **Existing data:** None.
 
 ### Test-infrastructure faults
 
