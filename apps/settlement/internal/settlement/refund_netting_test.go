@@ -32,17 +32,17 @@ func TestApplyRefundsToPayout_NetOfRefunds(t *testing.T) {
 	// Capture 10.000 BD at 250 bps -> net 9750; partial refund of 4.000 BD
 	// with 100 fils fee returned -> deduct 3900.
 	r := pendingRefund{id: uuid.New(), amountFils: 4000, feeReversedFils: 100}
-	inc, total, net := ApplyRefundsToPayout(NetPayableFils(10_000, 250), []pendingRefund{r})
-	if len(inc) != 1 || total != 3900 || net != 5850 {
-		t.Fatalf("got included=%d refunds=%d net=%d, want 1/3900/5850", len(inc), total, net)
+	inc, total, feeBack, net := ApplyRefundsToPayout(NetPayableFils(10_000, 250), []pendingRefund{r})
+	if len(inc) != 1 || total != 4000 || feeBack != 100 || net != 5850 {
+		t.Fatalf("got included=%d refunds=%d feeBack=%d net=%d, want 1/4000/100/5850", len(inc), total, feeBack, net)
 	}
 }
 
 func TestApplyRefundsToPayout_FullRefundNetsToZero(t *testing.T) {
 	r := pendingRefund{id: uuid.New(), amountFils: 10_000, feeReversedFils: 250}
-	inc, total, net := ApplyRefundsToPayout(NetPayableFils(10_000, 250), []pendingRefund{r})
-	if len(inc) != 1 || total != 9750 || net != 0 {
-		t.Fatalf("got included=%d refunds=%d net=%d, want 1/9750/0", len(inc), total, net)
+	inc, total, feeBack, net := ApplyRefundsToPayout(NetPayableFils(10_000, 250), []pendingRefund{r})
+	if len(inc) != 1 || total != 10_000 || feeBack != 250 || net != 0 {
+		t.Fatalf("got included=%d refunds=%d feeBack=%d net=%d, want 1/10000/250/0", len(inc), total, feeBack, net)
 	}
 }
 
@@ -50,16 +50,16 @@ func TestApplyRefundsToPayout_ExceedingCapturesRollsForward(t *testing.T) {
 	a := pendingRefund{id: uuid.New(), amountFils: 3000, feeReversedFils: 75}  // 2925
 	b := pendingRefund{id: uuid.New(), amountFils: 8000, feeReversedFils: 200} // 7800, doesn't fit
 	c := pendingRefund{id: uuid.New(), amountFils: 100, feeReversedFils: 2}    // fits, but must wait behind b
-	inc, total, net := ApplyRefundsToPayout(5000, []pendingRefund{a, b, c})
+	inc, total, feeBack, net := ApplyRefundsToPayout(5000, []pendingRefund{a, b, c})
 	if len(inc) != 1 || inc[0].id != a.id {
 		t.Fatalf("included = %+v, want only the first refund", inc)
 	}
-	if total != 2925 || net != 2075 {
-		t.Fatalf("refunds=%d net=%d, want 2925/2075", total, net)
+	if total != 3000 || feeBack != 75 || net != 2075 {
+		t.Fatalf("refunds=%d feeBack=%d net=%d, want 3000/75/2075", total, feeBack, net)
 	}
 
 	// No captures at all: nothing is batched, payout stays 0, never negative.
-	inc, total, net = ApplyRefundsToPayout(0, []pendingRefund{a})
+	inc, total, _, net = ApplyRefundsToPayout(0, []pendingRefund{a})
 	if len(inc) != 0 || total != 0 || net != 0 {
 		t.Fatalf("empty batch: got included=%d refunds=%d net=%d, want 0/0/0", len(inc), total, net)
 	}
@@ -69,13 +69,13 @@ func TestApplyRefundsToPayout_LargeAmountsExact(t *testing.T) {
 	// 50,000.001 BD captured, 20,000.003 BD refunded.
 	captureNet := NetPayableFils(50_000_001, 1_250_000)
 	r := pendingRefund{id: uuid.New(), amountFils: 20_000_003, feeReversedFils: 500_000}
-	_, total, net := ApplyRefundsToPayout(captureNet, []pendingRefund{r})
-	if total != 19_500_003 || net != 29_249_998 {
-		t.Fatalf("refunds=%d net=%d, want 19500003/29249998", total, net)
+	_, total, feeBack, net := ApplyRefundsToPayout(captureNet, []pendingRefund{r})
+	if total != 20_000_003 || feeBack != 500_000 || net != 29_249_998 {
+		t.Fatalf("refunds=%d feeBack=%d net=%d, want 20000003/500000/29249998", total, feeBack, net)
 	}
 }
 
-// --- DB-backed tests (skip without DATABASE_URL; need migration 0073) -------
+// --- DB-backed tests (skip without DATABASE_URL; need migration 0073) ---
 
 func insertRefund(t *testing.T, pool *pgxpool.Pool, merchantID, txnID uuid.UUID, amount, feeBack money.Fils, occurredAt time.Time) uuid.UUID {
 	t.Helper()
@@ -115,18 +115,18 @@ func TestCloseBatch_SameDayFullRefundNetsToZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseBatch: %v", err)
 	}
-	if res.NetPayoutFils != 0 || res.RefundsFils != 10_000-fee || res.RefundCount != 1 {
-		t.Fatalf("net=%d refunds=%d count=%d, want 0/%d/1", res.NetPayoutFils, res.RefundsFils, res.RefundCount, 10_000-fee)
+	if res.NetPayoutFils != 0 || res.RefundsFils != 10_000 || res.RefundFeeFils != fee || res.RefundCount != 1 {
+		t.Fatalf("net=%d refunds=%d feeBack=%d count=%d, want 0/10000/%d/1", res.NetPayoutFils, res.RefundsFils, res.RefundFeeFils, res.RefundCount, fee)
 	}
 	if b := refundBatchID(t, pool, refundID); b == nil || *b != res.BatchID {
 		t.Fatalf("refund settlement_batch_id = %v, want %s", b, res.BatchID)
 	}
-	var stored int64
-	if err := pool.QueryRow(context.Background(), `SELECT refunds_fils FROM settlement_batches WHERE id = $1`, res.BatchID).Scan(&stored); err != nil {
-		t.Fatalf("read refunds_fils: %v", err)
+	var stored, storedFee int64
+	if err := pool.QueryRow(context.Background(), `SELECT refunds_fils, refund_fee_reversed_fils FROM settlement_batches WHERE id = $1`, res.BatchID).Scan(&stored, &storedFee); err != nil {
+		t.Fatalf("read refund columns: %v", err)
 	}
-	if stored != int64(res.RefundsFils) {
-		t.Fatalf("refunds_fils = %d, want %d", stored, res.RefundsFils)
+	if stored != int64(res.RefundsFils) || storedFee != int64(res.RefundFeeFils) {
+		t.Fatalf("refunds_fils=%d refund_fee_reversed_fils=%d, want %d/%d", stored, storedFee, res.RefundsFils, res.RefundFeeFils)
 	}
 	var lines int
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM scheme_export_lines WHERE settlement_batch_id = $1`, res.BatchID).Scan(&lines); err != nil {
@@ -174,7 +174,8 @@ func TestCloseBatch_RefundExceedingCapturesRollsForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseBatch day2: %v", err)
 	}
-	if r2.RefundCount != 1 || r2.RefundsFils != 50_000-bigFee || r2.NetPayoutFils != r2.GrossFils-r2.FeeFils-r2.RefundsFils {
+	if r2.RefundCount != 1 || r2.RefundsFils != 50_000 || r2.RefundFeeFils != bigFee ||
+		r2.NetPayoutFils != r2.GrossFils-r2.FeeFils-r2.RefundsFils+r2.RefundFeeFils {
 		t.Fatalf("day2: %+v", r2)
 	}
 	if b := refundBatchID(t, pool, refundID); b == nil || *b != r2.BatchID {

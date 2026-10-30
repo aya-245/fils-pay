@@ -30,7 +30,8 @@ type BatchResult struct {
 	AlreadyClosed bool // true when this call found an existing 'closed'/'paid' batch and made no changes (idempotent no-op)
 	GrossFils     money.Fils
 	FeeFils       money.Fils
-	RefundsFils   money.Fils // total (amount - fee returned) of refunds netted out of this batch
+	RefundsFils   money.Fils // gross amount of refunds netted out of this batch
+	RefundFeeFils money.Fils // MDR fee handed back to the merchant for those refunds
 	NetPayoutFils money.Fils
 	EventCount    int
 	RefundCount   int
@@ -95,10 +96,11 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// Step 4: already closed/paid -> idempotent no-op, nothing to undo.
 	if status != "open" {
 		tx.Rollback(ctx) //nolint:errcheck
-		var gross, fee, refundsTotal, net int64
+		var gross, fee, refundsTotal, refundFee, net int64
 		err = db.QueryRow(ctx, `
-			SELECT gross_fils, fee_fils, refunds_fils, net_payout_fils FROM settlement_batches WHERE id = $1
-		`, batchID).Scan(&gross, &fee, &refundsTotal, &net)
+			SELECT gross_fils, fee_fils, refunds_fils, refund_fee_reversed_fils, net_payout_fils
+			  FROM settlement_batches WHERE id = $1
+		`, batchID).Scan(&gross, &fee, &refundsTotal, &refundFee, &net)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: read already-closed batch: %w", err)
 		}
@@ -110,6 +112,7 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 			GrossFils:     money.Fils(gross),
 			FeeFils:       money.Fils(fee),
 			RefundsFils:   money.Fils(refundsTotal),
+			RefundFeeFils: money.Fils(refundFee),
 			NetPayoutFils: money.Fils(net),
 		}, nil
 	}
@@ -256,7 +259,7 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	}
 	refundRows.Close()
 
-	includedRefunds, batchRefunds, netPayout := ApplyRefundsToPayout(captureNet, pending)
+	includedRefunds, batchRefunds, batchRefundFee, netPayout := ApplyRefundsToPayout(captureNet, pending)
 
 	// Record this batch's contribution to the platform-wide lifetime
 	// processed-volume counter, in the same transaction that freezes this
@@ -269,9 +272,10 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// Step 10: freeze the batch totals.
 	_, err = tx.Exec(ctx, `
 		UPDATE settlement_batches
-		   SET status = 'closed', gross_fils = $2, fee_fils = $3, net_payout_fils = $4, refunds_fils = $5, closed_at = now()
+		   SET status = 'closed', gross_fils = $2, fee_fils = $3, net_payout_fils = $4,
+		       refunds_fils = $5, refund_fee_reversed_fils = $6, closed_at = now()
 		 WHERE id = $1
-	`, batchID, int64(batchGross), int64(batchFee), int64(netPayout), int64(batchRefunds))
+	`, batchID, int64(batchGross), int64(batchFee), int64(netPayout), int64(batchRefunds), int64(batchRefundFee))
 	if err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: freeze batch totals: %w", err)
 	}
@@ -318,7 +322,7 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 
 	// Step 13: enqueue settlement.batch_closed onto the shared outbox, in
 	// the same transaction as the frozen totals.
-	payload, err := buildBatchClosedPayload(merchantID, batchID, batchDateOnly, batchGross, batchFee, batchRefunds, netPayout)
+	payload, err := buildBatchClosedPayload(merchantID, batchID, batchDateOnly, batchGross, batchFee, batchRefunds, batchRefundFee, netPayout)
 	if err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: build outbox payload: %w", err)
 	}
@@ -347,6 +351,7 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		GrossFils:     batchGross,
 		FeeFils:       batchFee,
 		RefundsFils:   batchRefunds,
+		RefundFeeFils: batchRefundFee,
 		NetPayoutFils: netPayout,
 		EventCount:    len(eventIDs),
 		RefundCount:   len(includedRefunds),

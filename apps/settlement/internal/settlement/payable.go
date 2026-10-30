@@ -30,9 +30,11 @@ func (r pendingRefund) netFils() money.Fils {
 // batch's capture net payout. Refunds are taken strictly in order; the
 // first refund that would push the payout below zero, and every refund
 // after it, is left out so it rolls forward to the next batch in the same
-// order. Returns the refunds to stamp with this batch, their total
-// deduction, and the resulting payout (always >= 0 when captureNet >= 0).
-func ApplyRefundsToPayout(captureNet money.Fils, refunds []pendingRefund) (included []pendingRefund, refundsFils, netPayout money.Fils) {
+// order. Returns the refunds to stamp with this batch, their gross
+// refunded total, the MDR fee handed back for them, and the resulting
+// payout = captureNet - refundsFils + feeReversedFils (always >= 0 when
+// captureNet >= 0).
+func ApplyRefundsToPayout(captureNet money.Fils, refunds []pendingRefund) (included []pendingRefund, refundsFils, feeReversedFils, netPayout money.Fils) {
 	netPayout = captureNet
 	for _, r := range refunds {
 		n := r.netFils()
@@ -40,8 +42,9 @@ func ApplyRefundsToPayout(captureNet money.Fils, refunds []pendingRefund) (inclu
 			break
 		}
 		netPayout -= n
-		refundsFils += n
+		refundsFils += r.amountFils
+		feeReversedFils += r.feeReversedFils
 		included = append(included, r)
 	}
-	return included, refundsFils, netPayout
+	return included, refundsFils, feeReversedFils, netPayout
 }
