@@ -4,7 +4,7 @@
 |---|---|
 | **Team** | Hackademics |
 | **Members and ownership** | **Aya Ismail**: API, payments and FP-300 refunds (API, ledger, webhooks), auth and security hardening, checkout and dashboard UI. **Lamees Adel**: settlement and finance (Go service, fees, reconciliation, the money/CSV/sweep findings), hosting on Dilmune Cloud, capacity testing, findings report. |
-| **Checkout** | https://168-144-92-39.sslip.io/pay/&lt;token&gt;. Demo link: {{DEMO_LINK}} |
+| **Checkout** | https://168-144-92-39.sslip.io/pay/&lt;token&gt;. Demo link: https://168-144-92-39.sslip.io/pay/plink_X2z-oArFo7TI2xxXZWSWts (4.750 BD; four more single-use demo links: `/pay/plink_Et7XSkIFudxmDnmkA5xpYQ`, `/pay/plink_LhX0Fe4om_IxCUZhOP7ITi`, `/pay/plink_w0BeqgTX2HZJn_gSRG_rOT`, `/pay/plink_bVe7QzqQSsa60fvtwfajK5`; valid until 2026-11-06) |
 | **Merchant dashboard** | https://168-144-92-39.sslip.io/dashboard |
 | **Admin console** | https://admin.168-144-92-39.sslip.io |
 | **Public API** | https://api.168-144-92-39.sslip.io (health: `/healthz`) |
