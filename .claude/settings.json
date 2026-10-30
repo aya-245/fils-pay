@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./keys/**)",
+      "Read(./ops/.env.prod)",
+      "Read(./ops/.env.docker)",
+      "Read(./**/.env)",
+      "Bash(cat keys/*)",
+      "Bash(cat ops/.env.prod)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(rm -rf /*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker system prune:*)"
+    ]
+  }
+}

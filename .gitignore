@@ -5,7 +5,12 @@ dist/
 .env.local
 npm-debug.log*
 .DS_Store
-.claude/
+# Claude Code: the shared project setup is committed (settings, commands,
+# agents); per-machine state and worktrees are not.
+.claude/*
+!.claude/settings.json
+!.claude/commands/
+!.claude/agents/
 
 # secrets: real env files and the keys/ drop folder never go in git
 .env.*
