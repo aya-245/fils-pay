@@ -30,6 +30,17 @@ func insertClosedBatchWithLine(t *testing.T, pool *pgxpool.Pool, merchantID uuid
 		t.Fatalf("insertClosedBatchWithLine: insert export line: %v", err)
 	}
 
+	// A real closed batch has its capture legs in the ledger; the cache is
+	// rebuilt from merchant_payable there (FP-203), not from export lines.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO ledger_entries (entry_group_id, merchant_id, settlement_batch_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES ($4, $1, $2, 'merchant_payable', 'credit', $3, now(), 'test capture'),
+		       ($4, $1, $2, 'card_scheme_clearing', 'debit', $3, now(), 'test capture')
+	`, merchantID, batchID, amountFils, uuid.New())
+	if err != nil {
+		t.Fatalf("insertClosedBatchWithLine: insert ledger legs: %v", err)
+	}
+
 	return batchID
 }
 

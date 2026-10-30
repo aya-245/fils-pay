@@ -21,9 +21,13 @@ func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]R
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// FP-203: same source as the CLI rebuild (merchant_payable in
+	// ledger_entries). merchant_payable_position sums gross scheme-exported
+	// captures only — no fees, payouts, refunds or adjustments — so the
+	// button and the CLI disagreed (Alpha Retail 135K -> 7K).
 	rows, err := tx.Query(ctx, `
 		SELECT DISTINCT merchant_id FROM (
-			SELECT merchant_id FROM merchant_payable_position
+			SELECT merchant_id FROM ledger_entries WHERE account_id = 'merchant_payable'
 			UNION
 			SELECT merchant_id FROM merchant_balances
 		) merchants
@@ -59,7 +63,9 @@ func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]R
 
 		var rebuilt int64
 		err = tx.QueryRow(ctx, `
-			SELECT COALESCE(payable_fils, 0) FROM merchant_payable_position WHERE merchant_id = $1
+			SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+			  FROM ledger_entries
+			 WHERE merchant_id = $1 AND account_id = 'merchant_payable'
 		`, merchantID).Scan(&rebuilt)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("ledger: RefreshBalanceCache: recompute balance for %s: %w", merchantID, err)
