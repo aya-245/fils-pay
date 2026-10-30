@@ -2,7 +2,48 @@
 
 Measured 2026-10-30. Everything below can be reproduced with `ops/loadtest/` (see [Reproduce](#reproduce)).
 
-## The estimate
+## Our estimate for the live server (measured on it)
+
+> **About 50 concurrent checkout users, about 18–19 completed checkouts per second (about 58 API requests/s),
+> with 0 errors and 0 shed.** This is the fixed scenario: create link, open link, pay, then 1 s think time,
+> sent through HTTPS (Caddy) to the live Dilmune box (1 vCPU, 2 GB; API capped at 0.5 vCPU / 512 MB).
+> Past about 50 users, throughput stays at about 18.7 checkouts/s and the excess is turned away with
+> `503 {"error":"overloaded"}` + `Retry-After`. It does not queue up or time out, and there are no 500s.
+
+Live staircase run (k6 from the deploy workstation, `ops/loadtest/checkout.js`; per-step numbers from
+`ops/loadtest/stages.py`). Every latency includes about 0.3 s of network round trip per request, because the
+workstation is far from the DigitalOcean blr1 datacentre. In the 2-user baseline, `create` p50 is 305 ms,
+and that is almost all network.
+
+| Concurrent users | req/s | paid checkouts/s | shed (503) | server errors | create p95 | get p95 | pay p50 | pay p95 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 13.8 | 4.4 | 0 % | 0 | 288 ms | 237 ms | 751 ms | 966 ms |
+| 25 | 33.5 | 10.9 | 0 % | 0 | 267 ms | 241 ms | 792 ms | 1011 ms |
+| **50** | **58.4** | **18.7** | **0 %** | **0** | 388 ms | 331 ms | 1054 ms | 1604 ms |
+| 100 | 86.8 | 18.8 | 10.9 % | 0 | 715 ms | 479 ms | 2324 ms | 3171 ms |
+| 150 | 117.8 | 11.4 | 23.9 % | 0 | 1324 ms | 936 ms | 3756 ms | 5769 ms |
+
+- **Correct under load:** 3,614 checkouts were paid with matching amounts. Every non-2xx response was by design:
+  - 1,916 were load-shedding `503 overloaded`;
+  - 103 were `402` card declines from the acquirer simulator's configured failure rate;
+  - 45 were `502 acquirer_unavailable` from the same simulator. Caddy's access log shows these as JSON from the
+    API, not proxy errors.
+
+  There were no unexplained 5xx responses and no timeouts.
+- **The bottleneck on this box is the single vCPU.** During the 100–150 user steps, `docker stats` showed the
+  API at 36–44 % (its cap is 50 %, i.e. 0.5 vCPU), Postgres at 40–50 % and Caddy at 10–19 %. Together that is the
+  whole core.
+  - The server's core benchmarks at **27.5 %** of the workstation core the local series below ran on
+    (`ops/loadtest/cpu-calibrate.sh`: 192,695 vs 700,065).
+  - This is why the local ceiling of about 120 users scales down to the live ceiling of about 50.
+- **Memory is not the limit.** The API used ≤ 85 MB of its 512 MB, Postgres ≤ 350 MB of 768 MB and Caddy ≤ 40 MB.
+- **Measured after the run:** Caddy now has 128 MB (it was 64 MB), and its passive health check was removed, so one
+  failed request can no longer mark the only API upstream down.
+
+The local series below explains *why*: pool sizing, the pay cap, the bugs the load test found, and crash and
+restart behaviour. Those mechanisms are identical on the live box.
+
+## The estimate on the local reference machine
 
 > **About 120 concurrent checkout users** (each doing create link, open link, pay, then 1 s of think time).
 > That is **about 70-75 completed checkouts per second** (about 220 API requests/s). All thresholds hold at that load:
