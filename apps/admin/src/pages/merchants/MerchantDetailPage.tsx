@@ -8,6 +8,8 @@ import { rotateApiKey } from "../../api/apiKeys.js";
 import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
+import { Badge } from "../../components/Badge.js";
+import { ArrowLeftIcon } from "../../components/Icons.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd, parseSignedBhdInput, refundsNettedFils, signedBhd } from "../../format.js";
 import type {
@@ -256,13 +258,43 @@ export function MerchantDetailPage() {
 
   return (
     <section>
-      <p>
-        <Link to="/merchants">&larr; Merchants</Link>
-      </p>
-      <h1>{merchant.displayName}</h1>
-      <p className="admin-muted">
-        <code>{merchant.id}</code>
-      </p>
+      <Link to="/merchants" className="admin-backlink">
+        <ArrowLeftIcon /> Merchants
+      </Link>
+      <div className="admin-page-header">
+        <div>
+          <h1>{merchant.displayName}</h1>
+          <p className="admin-muted">
+            <code>{merchant.id}</code>
+          </p>
+        </div>
+        <div className="admin-actions-inline">
+          <Badge value={merchant.status} />
+          <Badge value={merchant.onboardingStatus} />
+          <Badge value={merchant.testMode ? "test" : "live"} />
+        </div>
+      </div>
+
+      <div className="admin-stats">
+        <div className="admin-stat">
+          <div className="admin-stat-label">Cached payable</div>
+          <div className="admin-stat-value">
+            {detail.balance ? bhd(detail.balance.cachedPayableFils) : "—"}
+          </div>
+        </div>
+        <div className="admin-stat">
+          <div className="admin-stat-label">MDR</div>
+          <div className="admin-stat-value">{(merchant.mdrBps / 100).toFixed(2)}%</div>
+        </div>
+        <div className="admin-stat">
+          <div className="admin-stat-label">KYC</div>
+          <div className="admin-stat-value">{merchant.kycPassed ? "Passed" : "Not passed"}</div>
+        </div>
+        <div className="admin-stat">
+          <div className="admin-stat-label">API keys</div>
+          <div className="admin-stat-value">{apiKeys.filter((k) => !k.revokedAt).length} active</div>
+        </div>
+      </div>
 
       <div role="alert" aria-live="assertive" className="admin-live">
         {actionError ? <p className="admin-error">{actionError}</p> : null}
@@ -512,7 +544,12 @@ export function MerchantDetailPage() {
             <button type="button" disabled={busy} onClick={() => void handleKycReview("approved")}>
               Approve KYC
             </button>{" "}
-            <button type="button" disabled={busy} onClick={() => void handleKycReview("rejected")}>
+            <button
+              type="button"
+              className="admin-btn-danger"
+              disabled={busy}
+              onClick={() => void handleKycReview("rejected")}
+            >
               Reject KYC
             </button>
           </div>

@@ -4,6 +4,7 @@ import { login, verifyOtp } from "../../api/auth.js";
 import { describeError } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import type { AdminLoginResponse } from "../../types.js";
+import { CheckIcon } from "../../components/Icons.js";
 
 type Step =
   | { kind: "credentials" }
@@ -70,9 +71,43 @@ export function LoginPage() {
   }
 
   return (
-    <main className="admin-centered">
-      <h1>FilsPay Admin</h1>
-      <p className="admin-muted">Internal operations console.</p>
+    <div className="admin-login">
+      <aside className="admin-login-aside">
+        <div className="admin-brand">
+          <span className="admin-brand-mark" aria-hidden="true">
+            F
+          </span>
+          <span>
+            FilsPay
+            <small>Admin console</small>
+          </span>
+        </div>
+        <div>
+          <h2>Operations, settlement and merchant care in one place.</h2>
+          <p>Every money-adjacent action here is role-gated server-side and written to the admin audit log.</p>
+          <ul className="admin-login-points">
+            <li>
+              <CheckIcon /> Two-step sign-in with a one-time code
+            </li>
+            <li>
+              <CheckIcon /> Maker-checker approval for large credits
+            </li>
+            <li>
+              <CheckIcon /> Read-only, audited merchant impersonation
+            </li>
+          </ul>
+        </div>
+        <div className="admin-login-foot">Internal use only &middot; Asia/Bahrain business day</div>
+      </aside>
+
+      <main className="admin-login-panel">
+        <div className="admin-login-card">
+      <h1>{step.kind === "credentials" ? "Sign in" : "Check your code"}</h1>
+      <p className="admin-muted">
+        {step.kind === "credentials"
+          ? "Internal operations console."
+          : "Enter the one-time code to finish signing in."}
+      </p>
 
       {error ? <p className="admin-error">{error}</p> : null}
 
@@ -119,6 +154,8 @@ export function LoginPage() {
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
+              className="admin-otp-input"
+              maxLength={12}
               required
               value={code}
               onChange={(e) => setCode(e.target.value)}
@@ -129,6 +166,7 @@ export function LoginPage() {
           </button>
           <button
             type="button"
+            className="admin-link-button"
             onClick={() => {
               setStep({ kind: "credentials" });
               setCode("");
@@ -139,6 +177,8 @@ export function LoginPage() {
           </button>
         </form>
       )}
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }

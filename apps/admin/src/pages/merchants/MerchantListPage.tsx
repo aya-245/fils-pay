@@ -4,6 +4,7 @@ import { listMerchants } from "../../api/merchants.js";
 import { bulkApproveKyc } from "../../api/merchantsBulk.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { Badge } from "../../components/Badge.js";
 import type { AdminMerchantSummary, MerchantOnboardingStatus } from "../../types.js";
 
 const ONBOARDING_STATUSES: MerchantOnboardingStatus[] = [
@@ -102,7 +103,12 @@ export function MerchantListPage() {
 
   return (
     <section>
-      <h1>Merchants</h1>
+      <div className="admin-page-header">
+        <div>
+          <h1>Merchants</h1>
+          <p className="admin-muted">Search, review KYC and open any merchant&apos;s account.</p>
+        </div>
+      </div>
 
       <form
         className="admin-form admin-form-inline"
@@ -132,13 +138,13 @@ export function MerchantListPage() {
               checked={statuses.includes(status)}
               onChange={() => toggleStatus(status)}
             />
-            {status}
+            {status.replace(/_/g, " ")}
           </label>
         ))}
       </fieldset>
 
       {error ? <p className="admin-error">{error}</p> : null}
-      {bulkNotice ? <p className="admin-muted">{bulkNotice}</p> : null}
+      {bulkNotice ? <p className="admin-notice">{bulkNotice}</p> : null}
 
       {selectedIds.size > 0 ? (
         <div className="admin-form admin-form-inline">
@@ -154,6 +160,7 @@ export function MerchantListPage() {
         </div>
       ) : null}
 
+      <div className="admin-table-wrap">
       <table className="admin-table">
         <thead>
           <tr>
@@ -170,7 +177,7 @@ export function MerchantListPage() {
             <th>Status</th>
             <th>Onboarding</th>
             <th>KYC</th>
-            <th>MDR</th>
+            <th className="admin-num">MDR</th>
             <th>Mode</th>
             <th>Created</th>
           </tr>
@@ -186,32 +193,52 @@ export function MerchantListPage() {
                   onChange={() => toggleSelected(merchant.id)}
                 />
               </td>
-              <td>
+              <td className="admin-merchant-cell">
                 <Link to={`/merchants/${merchant.id}`}>{merchant.displayName}</Link>
                 <div className="admin-muted">
                   <code>{merchant.id}</code>
                 </div>
               </td>
-              <td>{merchant.status}</td>
-              <td>{merchant.onboardingStatus}</td>
-              <td>{merchant.kycPassed ? "passed" : "not passed"}</td>
-              <td>{(merchant.mdrBps / 100).toFixed(2)}%</td>
-              <td>{merchant.testMode ? "test" : "live"}</td>
+              <td>
+                <Badge value={merchant.status} />
+              </td>
+              <td>
+                <Badge value={merchant.onboardingStatus} />
+              </td>
+              <td>
+                <Badge value={merchant.kycPassed ? "passed" : "not passed"} />
+              </td>
+              <td className="admin-num">{(merchant.mdrBps / 100).toFixed(2)}%</td>
+              <td>
+                <Badge value={merchant.testMode ? "test" : "live"} />
+              </td>
               <td>{new Date(merchant.createdAt).toLocaleDateString()}</td>
             </tr>
           ))}
           {merchants.length === 0 && !loading ? (
             <tr>
-              <td colSpan={8}>No merchants match this search.</td>
+              <td colSpan={8} className="admin-table-empty">
+                No merchants match this search.
+              </td>
             </tr>
           ) : null}
         </tbody>
       </table>
+      </div>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? (
+        <p className="admin-loading">
+          <span className="admin-spinner" aria-hidden="true" /> Loading merchants...
+        </p>
+      ) : null}
 
       {nextCursor ? (
-        <button type="button" disabled={loading} onClick={() => void load(nextCursor)}>
+        <button
+          type="button"
+          className="admin-btn-secondary"
+          disabled={loading}
+          onClick={() => void load(nextCursor)}
+        >
           Load more
         </button>
       ) : null}
